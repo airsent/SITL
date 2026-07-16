@@ -1,0 +1,30 @@
+# Airsent SITL — compose form of the launcher.
+#
+# `run.sh` is the RECOMMENDED entrypoint (it resolves the host IP per-OS and is the
+# verified path). This compose file is a declarative fallback for the macOS/Windows
+# case (Docker Desktop, no host networking -> unicast MAVLink to the host).
+#
+# Compose can't resolve the host IP dynamically, so set HOST_IP if the default differs
+# on your Docker Desktop version (find it with:
+#   docker run --rm busybox getent hosts host.docker.internal ):
+#
+#   HOST_IP=192.168.65.254 docker compose up
+#
+# Linux users: prefer `./run.sh` (host networking).
+#
+# NOTE: we do NOT publish 14550/14540 — publishing 14550 collides with QGroundControl
+# binding the same host port. The container-initiated UDP flow carries replies back.
+services:
+  px4-sitl:
+    image: jonasvautherin/px4-gazebo-headless:${PX4_TAG:-1.17.0}
+    # positional args: <QGC target> <MAVSDK target> — both the host.
+    command: ["${HOST_IP:-192.168.65.254}", "${HOST_IP:-192.168.65.254}"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    stdin_open: true
+    tty: true

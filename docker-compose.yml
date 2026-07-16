@@ -1,0 +1,30 @@
+# Airsent SITL — compose form of the ArduCopter launcher.
+#
+# `./run.sh` is the RECOMMENDED entrypoint (adds friendly logging + env defaults).
+# This compose file is the equivalent declarative form.
+#
+#   docker compose up            # boot ArduCopter SITL, MAVLink TCP on :5760
+#   LAT=.. LON=.. docker compose up   # override home
+#
+# Connect a GCS / pymavlink to tcp:127.0.0.1:5760. ArduCopter blocks ARM for ~20-40s
+# after boot while EKF/GPS settle. The image is amd64 (emulated on Apple Silicon).
+services:
+  arducopter-sitl:
+    image: radarku/ardupilot-sitl:latest
+    platform: linux/amd64
+    ports:
+      - "5760:5760"
+    environment:
+      VEHICLE: ArduCopter
+      MODEL: "${MODEL:-+}"
+      LAT: "${LAT:-33.4213}"     # ASU Tempe
+      LON: "${LON:--111.9327}"
+      ALT: "${ALT:-360}"
+      DIR: "${DIR:-0}"
+    stdin_open: true
+    tty: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

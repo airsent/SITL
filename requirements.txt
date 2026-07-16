@@ -1,0 +1,6 @@
+# Airsent SITL — host-side tooling (the sim itself is Docker; see run.sh).
+#   pip install -r requirements.txt
+pymavlink>=2.4      # MAVLink (teleop.py, fanout.py, gcs/airsent_server.py)
+pygame>=2.6         # teleop.py — WASD flyer + live map window
+websockets>=12      # gcs/airsent_server.py — dashboard --sim (telemetry/command WS)
+numpy>=1.24         # gcs/airsent_server.py

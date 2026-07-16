@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Airsent SITL — local pilot launcher</title>
+<style>body{background:#070a0f;color:#e8edf2;font-family:system-ui,sans-serif;
+display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px}
+a{color:#22c55e}</style></head><body>
+<!--
+  LOCAL SITL DEV HELPER (not for production). Enables operator commands and jumps
+  to the pilot console pointed at the local airsent_server.py (SITL). Open this
+  from http://localhost:<port>/fly-local.html, click "▲ Takeoff" (arms + climbs),
+  then click "MANUAL" to fly with WASD (move), Space/Shift (climb/descend), Q/E (yaw).
+-->
+<script>
+  localStorage.setItem('airsentMode','operator');   // enable command-send in pilot.html
+  setTimeout(()=>location.replace('pilot.html'), 400);
+</script>
+<h2>Airsent SITL — enabling operator mode…</h2>
+<p>Redirecting to the pilot console → <a href="pilot.html">pilot.html</a></p>
+<p style="color:#8a9bb0;font-size:13px;max-width:420px;text-align:center">
+Once loaded: click <b>▲ Takeoff</b> (arms → GUIDED → climbs). Once hovering, click
+<b>MANUAL</b> to fly with <b>WASD</b> · <b>Space/Shift</b> climb/descend · <b>Q/E</b> yaw.</p>
+</body></html>
