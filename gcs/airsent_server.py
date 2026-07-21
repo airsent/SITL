@@ -22,6 +22,14 @@ from pymavlink.dialects.v20 import ardupilotmega as mavlink2
 # part SITL exercises — runs unchanged.
 SIM_MODE = ("--sim" in sys.argv) or bool(os.environ.get("SITL"))
 
+# Pass --relay (or VPS_RELAY=1) alongside --sim to ALSO dial out to the VPS
+# relays, so the hosted console (console.airsent.tech) shows the simulated
+# drone exactly as it would the real one. Vision/RTMP stay Jetson-only — just
+# telemetry + commands relay. NOTE: the relay has ONE drone slot; while the
+# sim is connected it impersonates the drone, so don't run this while the
+# real Jetson is up.
+RELAY_MODE = ("--relay" in sys.argv) or bool(os.environ.get("VPS_RELAY"))
+
 # Vision stack (OAK-D + OpenCV) is Jetson-only. Guard the imports so the server
 # still starts on a laptop; camera/obstacle threads are gated on availability.
 try:
@@ -1410,9 +1418,12 @@ async def main():
         cmd_srv.wait_closed(),
         downcam_srv.wait_closed(),
     ]
-    if not SIM_MODE:
+    if not SIM_MODE or RELAY_MODE:
         tasks.append(asyncio.create_task(vps_telem_relay()))
         tasks.append(asyncio.create_task(vps_cmd_relay()))
+        if SIM_MODE:
+            print("[SITL] --relay: dialing VPS relays — the hosted console "
+                  "(console.airsent.tech) will show the SIM as the drone.")
     else:
         print("[SITL] VPS relays skipped — connect a GCS to the LOCAL ports: "
               "telem ws://<host>:8765 · cmd ws://<host>:8767")
@@ -1421,7 +1432,8 @@ async def main():
 
 if __name__ == "__main__":
     if SIM_MODE:
-        print(f"[SITL] SIM MODE — MAVLink={PIXHAWK_PORT} · vision/RTMP/VPS disabled")
+        relay_note = "VPS relay ON" if RELAY_MODE else "VPS disabled"
+        print(f"[SITL] SIM MODE — MAVLink={PIXHAWK_PORT} · vision/RTMP disabled · {relay_note}")
     threading.Thread(target=mavlink_reader,  daemon=True).start()
     threading.Thread(target=velocity_sender, daemon=True).start()
     # Vision + RTMP threads are Jetson/OAK-D only — skipped on a dev laptop / SITL.
