@@ -108,7 +108,10 @@ function connectCmd() {
   if (!canSendCommands) return;
   if (cmdSocket && (cmdSocket.readyState === WebSocket.OPEN ||
                     cmdSocket.readyState === WebSocket.CONNECTING)) return;
-  cmdSocket = new WebSocket("wss://console.airsent.tech/cmd");
+  const CMD_PORT = 8767;
+  const _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
+  const CMD_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${CMD_PORT}` : `wss://console.airsent.tech/cmd`;
+  cmdSocket = new WebSocket(CMD_WS_URL);
   cmdSocket.onopen  = () => { console.log("\u2705 Command channel connected"); };
   cmdSocket.onclose = () => {
     cmdSocket = null;
@@ -137,7 +140,7 @@ function sendCmd(obj) {
   return false;
 }
  
-let missionSeconds = 25 * 60 + 38;
+let missionSeconds = isRealMode ? 0 : (25 * 60 + 38);
 let missionTimerPaused = false;
 let eventLogPaused = false;
 let currentActiveFlightButton = null;
@@ -463,12 +466,7 @@ function bindTopbarControls() {
 }
  
 function bindFailsafeControls() {
-	  failsafeSelects.forEach((select) => {
-	    select.addEventListener("change", () => {
-	      const label = select.closest(".failsafe-row")?.querySelector("span")?.textContent || "FAILSAFE";
-	      prependEvent(`${label} SET TO ${select.value}`);
-	    });
-	  });
+  // No-op stub in Phase A: selects are disabled; Phase B wires real PARAM_SET + PARAM_VALUE read-back.
 }
 
 function isViewerReadOnly() {

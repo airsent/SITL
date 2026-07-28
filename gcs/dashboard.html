@@ -131,7 +131,15 @@
       <a href="actuators.html">Actuators</a>
     </div>
   </div>
- 
+
+  <span id="simBadge" style="display:none;margin-left:10px;padding:2px 8px;border-radius:4px;background:#c8102e;color:#fff;font-size:11px;font-weight:700;letter-spacing:.5px;">LOCAL SIM</span>
+  <script>
+  (function(){
+    var _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
+    if(_LOCAL_DEV) document.getElementById('simBadge').style.display='';
+  })();
+  </script>
+
   <span class="top-static-label">STATUS:</span>
  
   <select id="statusSelect" class="top-select status-select">
@@ -323,7 +331,7 @@ FAILSAFE
  
   <div class="failsafe-row">
     <span>RC LOSS</span>
-    <select class="failsafe-select">
+    <select class="failsafe-select" disabled>
       <option>RTL</option>
       <option>LAND</option>
       <option>HOLD</option>
@@ -333,7 +341,7 @@ FAILSAFE
  
   <div class="failsafe-row">
     <span>LOW BATTERY</span>
-    <select class="failsafe-select">
+    <select class="failsafe-select" disabled>
       <option>LAND</option>
       <option>RTL</option>
       <option>HOLD</option>
@@ -343,7 +351,7 @@ FAILSAFE
  
   <div class="failsafe-row">
     <span>GCS LINK</span>
-    <select class="failsafe-select">
+    <select class="failsafe-select" disabled>
       <option>HOLD</option>
       <option>RTL</option>
       <option>LAND</option>
@@ -353,7 +361,7 @@ FAILSAFE
  
   <div class="failsafe-row">
     <span>GEO FENCE</span>
-    <select class="failsafe-select">
+    <select class="failsafe-select" disabled>
       <option>RTL</option>
       <option>LAND</option>
       <option>HOLD</option>
@@ -965,6 +973,9 @@ MOTOR OUTPUT AVG / BATTERY CURRENT / VOLTAGE SAG
 
   const D = id => document.getElementById(id);
 
+  // Phase A honesty guard: never dial production video from a local sim demo.
+  const _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
+
   /* ── VIEW TOGGLE ──────────────────────────────────────────── */
   let currentView = 'map';
   const leafletMap = D('leafletMap');
@@ -1034,14 +1045,15 @@ MOTOR OUTPUT AVG / BATTERY CURRENT / VOLTAGE SAG
     pc.createOffer()
       .then(offer => {
         pc.setLocalDescription(offer);
+        if(_LOCAL_DEV) return null; // local sim demo — skip production video fetch
         return fetch(`https://console.airsent.tech/video/frontcam/whep`, {
           method:'POST',
           headers:{'Content-Type':'application/sdp'},
           body:offer.sdp
         });
       })
-      .then(r => { if(!r.ok) throw new Error(`WHEP ${r.status}`); return r.text(); })
-      .then(sdp => pc.setRemoteDescription({type:'answer', sdp}))
+      .then(r => { if(!r) return; if(!r.ok) throw new Error(`WHEP ${r.status}`); return r.text(); })
+      .then(sdp => { if(sdp) pc.setRemoteDescription({type:'answer', sdp}); })
       .catch(e => {
         console.warn('[Front WebRTC]', e);
         try{pc.close();}catch(_){}
@@ -1107,13 +1119,16 @@ MOTOR OUTPUT AVG / BATTERY CURRENT / VOLTAGE SAG
     pc.createOffer()
       .then(offer => pc.setLocalDescription(offer))
       .then(() => waitIce())
-      .then(() => fetch(`https://console.airsent.tech/video/downcam/whep`, {
-        method:'POST',
-        headers:{'Content-Type':'application/sdp'},
-        body:pc.localDescription.sdp
-      }))
-      .then(async r => { if(!r.ok) throw new Error(`WHEP ${r.status}: ${await r.text()}`); return r.text(); })
-      .then(sdp => pc.setRemoteDescription({type:'answer', sdp}))
+      .then(() => {
+        if(_LOCAL_DEV) return null; // local sim demo — skip production video fetch
+        return fetch(`https://console.airsent.tech/video/downcam/whep`, {
+          method:'POST',
+          headers:{'Content-Type':'application/sdp'},
+          body:pc.localDescription.sdp
+        });
+      })
+      .then(async r => { if(!r) return; if(!r.ok) throw new Error(`WHEP ${r.status}: ${await r.text()}`); return r.text(); })
+      .then(sdp => { if(sdp) pc.setRemoteDescription({type:'answer', sdp}); })
       .catch(e => {
         console.warn('[Down WebRTC]', e);
         D('downCamDot').classList.remove('live');

@@ -648,7 +648,10 @@ function applyTelemetry(data) {
   if (data.spd !== undefined) setText("spdVal", data.spd.toFixed(1) + " m/s");
   if (data.vspd !== undefined) pushBuffer("climb", data.vspd);
 
-  if (data.rssi !== undefined) setText("rssiVal", data.rssi.toFixed ? data.rssi.toFixed(1) : data.rssi);
+  if (data.rssi !== undefined) {
+    const _r = data.rssi;
+    setText("rssiVal", (_r === 255 || _r === null) ? "--" : (_r.toFixed ? _r.toFixed(1) : _r));
+  }
 
   if (data.flight_mode !== undefined) {
     setText("mapModeVal", data.flight_mode);
@@ -722,11 +725,15 @@ function connectTelemetry() {
   isConnecting = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
+  const TELEM_PORT = 8765;
+  const _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
+  const TELEM_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${TELEM_PORT}` : `wss://console.airsent.tech/telem`;
+
   // Connects to the VPS relay over the secure nginx reverse proxy. Browsers
   // never connect directly to the Jetson for telemetry (the Jetson is behind
   // NAT). The Jetson pushes into port 9001 and the relay re-serves to browsers
   // on port 9101, which nginx exposes securely as wss://console.airsent.tech/telem.
-  socket = new WebSocket("wss://console.airsent.tech/telem");
+  socket = new WebSocket(TELEM_WS_URL);
 
   socket.onopen = () => {
     console.log("✅ WebSocket connected to VPS relay");
