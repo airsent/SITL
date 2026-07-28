@@ -2833,6 +2833,22 @@ body[data-page="sensor-status"]{
   display: block !important;
 }
 
+/* Hover bridge: the menu sits 9px below the button (top: calc(100% + 9px)), and
+   crossing that gap drops :hover, closing the menu before it can be reached. An
+   invisible strip spanning the gap keeps the pointer inside the dropdown's hover
+   area during the traversal. Hover-only so it never blocks clicks when closed. */
+.logo-dropdown:hover::after,
+.logo-dropdown:focus-within::after,
+.logo-wrap:hover::after,
+.logo-wrap:focus-within::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 260px; /* match the menu's min-width so diagonal moves stay covered */
+  height: 9px;
+}
+
 .topbar,
 .topbar-main,
 .top-item,
