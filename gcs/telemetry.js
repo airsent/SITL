@@ -574,6 +574,12 @@ function updateMotors(data) {
   }
 }
 
+// ─── SYSTEM STATUS ────────────────────────────────────────────────────────────
+const MAV_STATE_TEXT = {
+  0: 'UNINIT', 1: 'BOOT', 2: 'CALIBRATING', 3: 'STANDBY', 4: 'ACTIVE',
+  5: 'CRITICAL', 6: 'EMERGENCY', 7: 'POWEROFF', 8: 'TERMINATED',
+};
+
 // ─── MAIN APPLY ───────────────────────────────────────────────────────────────
 function applyTelemetry(data) {
   const pxOk = data.pixhawk_connected !== false;
@@ -582,6 +588,11 @@ function applyTelemetry(data) {
 
   // Jetson-sourced — always update regardless of FC connection
   if (data.cpu !== undefined) setText("cpuLoadTop", `${Math.round(data.cpu)}%`);
+
+  // STATUSTEXT → event log (server delivers each line exactly once, no dedup needed)
+  if (Array.isArray(data.statustext_new) && typeof window.prependEvent === 'function') {
+    data.statustext_new.forEach(entry => window.prependEvent(entry.text));
+  }
 
   if (!pxOk) {
     // FC offline — blank all FC-dependent displays
@@ -597,6 +608,8 @@ function applyTelemetry(data) {
     setSensorStatus("sensorImu",          "OFFLINE", false);
     setSensorStatus("sensorBarometer",    "OFFLINE", false);
     setSensorStatus("sensorOpticalFlow",  "OFFLINE", false);
+    // Failsafe readout can't claim a live state beside seven OFFLINE rows
+    setText("failsafeStateTop", "--"); setText("summaryFailsafe", "--");
     triggerFaultAlert('fault', 'pixhawk', 'PIXHAWK OFFLINE — No flight controller connection');
     redrawAllCharts();
     return;
@@ -626,7 +639,12 @@ function applyTelemetry(data) {
   if (data.fix_type !== undefined) {
     const ok = data.fix_type !== "NO FIX";
     setOnlineStatus(getEl("gpsFixTop"), data.fix_type, ok);
-    setSensorStatus("sensorGps", ok ? "NOMINAL" : "NO FIX", ok);
+    const gpsHealth = data.sensor_health ? data.sensor_health.gps : null;
+    if (gpsHealth != null) {
+      setSensorStatus("sensorGps", gpsHealth ? "NOMINAL" : "FAULT", gpsHealth);
+    } else {
+      setSensorStatus("sensorGps", ok ? "NOMINAL" : "NO FIX", ok);
+    }
   }
   if (data.hdop != null) pushBuffer("hdop", data.hdop);
 
@@ -670,34 +688,74 @@ function applyTelemetry(data) {
   }
   if (data.armed !== undefined) setStatusSelect(data.armed ? "armed" : "disarmed");
 
-  // Sensor status
-  setSensorStatus("sensorBattery",
-    data.voltage > 0 ? "NOMINAL" : "FAULT",
-    data.voltage > 0);
+  // SYSTEM_STATUS → failsafe-state readout (displaces script.js's motor-spread heuristic).
+  // Per-tick, not a latch: a reconnected server honestly reporting null hands the
+  // readout back to the heuristic instead of freezing the last live state.
+  window._SYS_STATUS_LIVE = (data.system_status != null);
+  if (data.system_status != null) {
+    const sysText = (data.system_status === 3 || data.system_status === 4)
+      ? "NORMAL"
+      : (MAV_STATE_TEXT[data.system_status] || String(data.system_status));
+    setText("failsafeStateTop", sysText);
+    setText("summaryFailsafe", sysText);
+  }
+
+  // Sensor status — sensor_health (real) takes precedence over presence-inference (proxy);
+  // fallback runs only when the mapped health value is null (not-yet-observed).
+  const sh = data.sensor_health || {};
+
+  if (sh.battery != null) {
+    setSensorStatus("sensorBattery", sh.battery ? "NOMINAL" : "FAULT", sh.battery);
+  } else {
+    setSensorStatus("sensorBattery",
+      data.voltage > 0 ? "NOMINAL" : "FAULT",
+      data.voltage > 0);
+  }
   if (data.voltage !== undefined) {
     if (data.voltage <= 0) triggerFaultAlert('fault', 'battery-volt', 'BATTERY FAULT — No voltage reading');
     else clearFaultAlert('battery-volt');
   }
 
-  setSensorStatus("sensorLidar",
-    data.rangefinder > 0 ? "NOMINAL" : "OFFLINE",
-    data.rangefinder > 0);
+  if (sh.rangefinder != null) {
+    setSensorStatus("sensorLidar", sh.rangefinder ? "NOMINAL" : "FAULT", sh.rangefinder);
+  } else {
+    setSensorStatus("sensorLidar",
+      data.rangefinder > 0 ? "NOMINAL" : "OFFLINE",
+      data.rangefinder > 0);
+  }
 
-  setSensorStatus("sensorCompass",
-    data.yaw !== undefined ? "NOMINAL" : "OFFLINE",
-    data.yaw !== undefined);
+  if (sh.mag != null) {
+    setSensorStatus("sensorCompass", sh.mag ? "NOMINAL" : "FAULT", sh.mag);
+  } else {
+    setSensorStatus("sensorCompass",
+      data.yaw !== undefined ? "NOMINAL" : "OFFLINE",
+      data.yaw !== undefined);
+  }
 
-  setSensorStatus("sensorImu",
-    (data.roll !== undefined && data.pitch !== undefined) ? "NOMINAL" : "OFFLINE",
-    (data.roll !== undefined && data.pitch !== undefined));
+  if (sh.gyro != null && sh.accel != null) {
+    const imuOk = sh.gyro && sh.accel;
+    setSensorStatus("sensorImu", imuOk ? "NOMINAL" : "FAULT", imuOk);
+  } else {
+    setSensorStatus("sensorImu",
+      (data.roll !== undefined && data.pitch !== undefined) ? "NOMINAL" : "OFFLINE",
+      (data.roll !== undefined && data.pitch !== undefined));
+  }
 
-  setSensorStatus("sensorBarometer",
-    data.alt !== undefined ? "NOMINAL" : "OFFLINE",
-    data.alt !== undefined);
+  if (sh.abs_pressure != null) {
+    setSensorStatus("sensorBarometer", sh.abs_pressure ? "NOMINAL" : "FAULT", sh.abs_pressure);
+  } else {
+    setSensorStatus("sensorBarometer",
+      data.alt !== undefined ? "NOMINAL" : "OFFLINE",
+      data.alt !== undefined);
+  }
 
-  setSensorStatus("sensorOpticalFlow",
-    data.of_quality > 0 ? "NOMINAL" : "OFFLINE",
-    data.of_quality > 0);
+  if (sh.optical_flow != null) {
+    setSensorStatus("sensorOpticalFlow", sh.optical_flow ? "NOMINAL" : "FAULT", sh.optical_flow);
+  } else {
+    setSensorStatus("sensorOpticalFlow",
+      data.of_quality > 0 ? "NOMINAL" : "OFFLINE",
+      data.of_quality > 0);
+  }
 
   // Camera status driven by WebRTC — do not overwrite here.
 

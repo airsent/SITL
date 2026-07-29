@@ -751,8 +751,12 @@ function applyMotorFaultState(pwmVals, outVals) {
  
   if (telemetryEls.diagOscillation) telemetryEls.diagOscillation.textContent = oscillationState;
   if (telemetryEls.diagStatus) telemetryEls.diagStatus.textContent = statusText;
-  if (telemetryEls.failsafeStateTop) telemetryEls.failsafeStateTop.textContent = failsafeText;
-  if (telemetryEls.summaryFailsafe) telemetryEls.summaryFailsafe.textContent = failsafeText;
+  // Real MAV_STATE wins once observed (telemetry.js sets window._SYS_STATUS_LIVE);
+  // this heuristic is only the fallback until then.
+  if (!window._SYS_STATUS_LIVE) {
+    if (telemetryEls.failsafeStateTop) telemetryEls.failsafeStateTop.textContent = failsafeText;
+    if (telemetryEls.summaryFailsafe) telemetryEls.summaryFailsafe.textContent = failsafeText;
+  }
 }
  
 function applyRealModeZeroState() {

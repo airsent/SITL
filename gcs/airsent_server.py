@@ -123,7 +123,39 @@ telem = {
     "of_quality":0,
     "of_flow_x":0.0,
     "of_flow_y":0.0,
+    # ── sensor-health (C1) ── HARD HONESTY RULE: None until the source MAVLink
+    # message has been received at least once — never a guessed default, so
+    # consumers can tell False ("vehicle reported unhealthy") from null ("not
+    # yet observed").
+    "sensors_present": None,
+    "sensors_enabled": None,
+    "sensors_health": None,
+    "system_status": None,
+    "sensor_health": {
+        'gyro': None, 'accel': None, 'mag': None, 'abs_pressure': None,
+        'gps': None, 'battery': None, 'rangefinder': None, 'optical_flow': None,
+    },
 }
+
+# ── Sensor-health decode table (C1) ──────────────
+# Never hardcode the SYS_STATUS bit integers — map through pymavlink's own
+# MAV_SYS_STATUS_SENSOR_* constants so a dialect bump can't silently desync us.
+_SENSOR_BITS = {
+    'gyro':          mavutil.mavlink.MAV_SYS_STATUS_SENSOR_3D_GYRO,
+    'accel':         mavutil.mavlink.MAV_SYS_STATUS_SENSOR_3D_ACCEL,
+    'mag':           mavutil.mavlink.MAV_SYS_STATUS_SENSOR_3D_MAG,
+    'abs_pressure':  mavutil.mavlink.MAV_SYS_STATUS_SENSOR_ABSOLUTE_PRESSURE,
+    'gps':           mavutil.mavlink.MAV_SYS_STATUS_SENSOR_GPS,
+    'battery':       mavutil.mavlink.MAV_SYS_STATUS_SENSOR_BATTERY,
+    'rangefinder':   mavutil.mavlink.MAV_SYS_STATUS_SENSOR_LASER_POSITION,
+    'optical_flow':  mavutil.mavlink.MAV_SYS_STATUS_SENSOR_OPTICAL_FLOW,
+}
+
+# STATUSTEXT lines are queued here by the reader thread and drained by the
+# asyncio telemetry loop once per payload build — the lock is load-bearing
+# since those are two different threads touching the same list.
+_statustext_buf = []
+_statustext_lock = threading.Lock()
 
 detections = []
 det_lock = threading.Lock()
@@ -300,6 +332,37 @@ def thermal_monitor():
             print(f"[THERMAL] {e}")
         time.sleep(5)
 
+# ── Sensor-health / status-text handler (C1) ─────
+# Kept separate from mavlink_reader's main if/elif dispatch so the offline
+# acceptance suite can drive it directly with fake messages (no live link,
+# no thread).
+def _handle_status_msg(msg, t=None):
+    t = t or msg.get_type()
+    if t == 'SYS_STATUS':
+        telem['sensors_present'] = msg.onboard_control_sensors_present
+        telem['sensors_enabled'] = msg.onboard_control_sensors_enabled
+        telem['sensors_health']  = msg.onboard_control_sensors_health
+        # Rebuild as a NEW dict each time (never mutate in place) — a bit only
+        # reads as True/False when BOTH present and enabled; otherwise the
+        # vehicle hasn't told us anything about it yet, so it stays None.
+        new_health = {}
+        for key, bit in _SENSOR_BITS.items():
+            if (telem['sensors_present'] & bit) and (telem['sensors_enabled'] & bit):
+                new_health[key] = bool(telem['sensors_health'] & bit)
+            else:
+                new_health[key] = None
+        telem['sensor_health'] = new_health
+    elif t == 'HEARTBEAT':
+        telem['system_status'] = msg.system_status
+    elif t == 'STATUSTEXT':
+        text = msg.text
+        if isinstance(text, bytes):
+            text = text.decode(errors='replace')
+        text = text.rstrip('\x00')
+        with _statustext_lock:
+            _statustext_buf.append({'severity': int(msg.severity), 'text': text})
+    # else: no-op — not a message this handler cares about.
+
 # ── MAVLink thread ───────────────────────────────
 def mavlink_reader():
     global mav_conn, _last_imu_accel, last_mav_report
@@ -339,6 +402,7 @@ def mavlink_reader():
                     continue
                 t = msg.get_type()
                 if t == 'BAD_DATA': continue
+                _handle_status_msg(msg, t)  # sensor-health/status-text (C1); independent of the dispatch below
                 _now = time.time()
                 last_mav_msg = _now
                 if _now - last_mav_report > 5:
@@ -718,6 +782,11 @@ def build_telemetry_payload():
         log = list(mavlink_log)
     payload = dict(telem)
     payload['mavlink_log'] = log
+    # Drain STATUSTEXT lines queued since the last build — each delivered
+    # exactly once; empty most ticks.
+    with _statustext_lock:
+        payload['statustext_new'] = list(_statustext_buf)
+        _statustext_buf.clear()
     with mav_lock:
         px_ok = mav_conn is not None
     payload['pixhawk_connected'] = px_ok
