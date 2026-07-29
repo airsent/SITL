@@ -8,6 +8,7 @@ import os
 import sys
 import threading
 import traceback
+from collections import deque
 import subprocess
 import socket
 import numpy as np
@@ -151,11 +152,32 @@ _SENSOR_BITS = {
     'optical_flow':  mavutil.mavlink.MAV_SYS_STATUS_SENSOR_OPTICAL_FLOW,
 }
 
-# STATUSTEXT lines are queued here by the reader thread and drained by the
-# asyncio telemetry loop once per payload build — the lock is load-bearing
-# since those are two different threads touching the same list.
-_statustext_buf = []
+# STATUSTEXT lines are appended here by the reader thread and read by each
+# telemetry consumer at its own pace — the lock is load-bearing since those are
+# different threads touching the same list.
+#
+# Sequence-numbered ring, NOT a drain queue: every consumer (dashboard tab,
+# pilot.html — which opens its own :8765 socket — the VPS relay, and the s04
+# logger later) keeps a cursor and gets every line exactly once. A drain would
+# hand each line to whichever consumer's tick fired first and lose it for the
+# rest. Bounded so a long run with no consumer attached can't grow forever.
+_statustext_buf = deque(maxlen=200)
+_statustext_seq = 0
 _statustext_lock = threading.Lock()
+
+def _statustext_head():
+    """Current max sequence — a joining consumer starts here (no backlog replay)."""
+    with _statustext_lock:
+        return _statustext_seq
+
+def _statustext_since(cursor):
+    """(lines newer than cursor, new cursor) — the per-consumer read primitive."""
+    with _statustext_lock:
+        if cursor is None or cursor < 0:
+            lines = [dict(e) for e in _statustext_buf]
+        else:
+            lines = [dict(e) for e in _statustext_buf if e['seq'] > cursor]
+        return [{'severity': e['severity'], 'text': e['text']} for e in lines], _statustext_seq
 
 detections = []
 det_lock = threading.Lock()
@@ -359,8 +381,14 @@ def _handle_status_msg(msg, t=None):
         if isinstance(text, bytes):
             text = text.decode(errors='replace')
         text = text.rstrip('\x00')
+        global _statustext_seq
         with _statustext_lock:
-            _statustext_buf.append({'severity': int(msg.severity), 'text': text})
+            _statustext_seq += 1
+            _statustext_buf.append({
+                'seq': _statustext_seq,
+                'severity': int(msg.severity),
+                'text': text,
+            })
     # else: no-op — not a message this handler cares about.
 
 # ── MAVLink thread ───────────────────────────────
@@ -776,17 +804,18 @@ async def cmd_handler(websocket):
             vel_setpoint.update({'vx':0,'vy':0,'vz':0,'yaw_rate':0})
 
 # ── Telemetry payload builder ─────────────────────────────────────────────
-def build_telemetry_payload():
+def build_telemetry_payload(statustext_cursor=None):
     now = time.time()
     with mavlink_log_lock:
         log = list(mavlink_log)
     payload = dict(telem)
     payload['mavlink_log'] = log
-    # Drain STATUSTEXT lines queued since the last build — each delivered
-    # exactly once; empty most ticks.
-    with _statustext_lock:
-        payload['statustext_new'] = list(_statustext_buf)
-        _statustext_buf.clear()
+    # STATUSTEXT lines newer than THIS consumer's cursor (empty most ticks).
+    # payload['statustext_seq'] is the cursor to pass back on the next tick —
+    # read-with-cursor, never a shared drain, so two open pages both get the line.
+    lines, head = _statustext_since(statustext_cursor)
+    payload['statustext_new'] = lines
+    payload['statustext_seq'] = head
     with mav_lock:
         px_ok = mav_conn is not None
     payload['pixhawk_connected'] = px_ok
@@ -824,9 +853,14 @@ def build_telemetry_payload():
 # ── Telemetry WebSocket ──────────────────────────
 async def telem_handler(websocket):
     print(f"[TELEM] Client: {websocket.remote_address}")
+    # Per-connection STATUSTEXT cursor: starts at the current head so a joining
+    # page doesn't replay old lines, then advances with what it was actually sent.
+    st_cursor = _statustext_head()
     try:
         while True:
-            await websocket.send(json.dumps(build_telemetry_payload()))
+            payload = build_telemetry_payload(st_cursor)
+            st_cursor = payload['statustext_seq']
+            await websocket.send(json.dumps(payload))
             await asyncio.sleep(0.05)
     except websockets.exceptions.ConnectionClosed:
         print("[TELEM] Disconnected")
@@ -1425,8 +1459,11 @@ async def vps_telem_relay():
 
             print("[VPS] Telemetry relay connected")
 
+            st_cursor = _statustext_head()   # the relay is its own consumer
             while True:
-                await remote.send(json.dumps(build_telemetry_payload()))
+                payload = build_telemetry_payload(st_cursor)
+                st_cursor = payload['statustext_seq']
+                await remote.send(json.dumps(payload))
                 await asyncio.sleep(0.05)
 
         except Exception as e:

@@ -98,33 +98,59 @@ srv._handle_status_msg(FakeMsg('HEARTBEAT', system_status=5))
 p = srv.build_telemetry_payload()
 check("T1.9 HEARTBEAT system_status passthrough == 5", p['system_status'] == 5)
 
-print("T3 — STATUSTEXT passthrough (buffer + drain-once, bytes decode, ordering)")
+print("T3 — STATUSTEXT delivery (per-consumer cursor, once each, bytes decode, ordering)")
 _reset()
+# One consumer: cursor starts at head, each line arrives exactly once, no replay.
+cur = srv._statustext_head()
 srv._handle_status_msg(FakeMsg('STATUSTEXT', severity=4, text='Failsafe: Battery low'))
-p1 = srv.build_telemetry_payload()
-check("T3.1 first drain returns the queued line",
+p1 = srv.build_telemetry_payload(cur); cur = p1['statustext_seq']
+check("T3.1 first read returns the queued line",
       p1['statustext_new'] == [{'severity': 4, 'text': 'Failsafe: Battery low'}],
       str(p1['statustext_new']))
-p2 = srv.build_telemetry_payload()
-check("T3.2 second drain is empty (no replay)", p2['statustext_new'] == [])
-p3 = srv.build_telemetry_payload()
-check("T3.3 third drain is still empty (no duplication)", p3['statustext_new'] == [])
+p2 = srv.build_telemetry_payload(cur); cur = p2['statustext_seq']
+check("T3.2 next read at the advanced cursor is empty (no replay)", p2['statustext_new'] == [])
+p3 = srv.build_telemetry_payload(cur); cur = p3['statustext_seq']
+check("T3.3 third read is still empty (no duplication)", p3['statustext_new'] == [])
 
 srv._handle_status_msg(FakeMsg('STATUSTEXT', severity=3, text=b'PreArm: check\x00\x00'))
-p4 = srv.build_telemetry_payload()
+p4 = srv.build_telemetry_payload(cur); cur = p4['statustext_seq']
 check("T3.4 bytes decoded + trailing NULs stripped",
       p4['statustext_new'] == [{'severity': 3, 'text': 'PreArm: check'}],
       str(p4['statustext_new']))
 
 srv._handle_status_msg(FakeMsg('STATUSTEXT', severity=6, text='line one'))
 srv._handle_status_msg(FakeMsg('STATUSTEXT', severity=6, text='line two'))
-p5 = srv.build_telemetry_payload()
-check("T3.5 two-line feed preserves order in one drain",
+p5 = srv.build_telemetry_payload(cur); cur = p5['statustext_seq']
+check("T3.5 two-line feed preserves order in one read",
       p5['statustext_new'] == [
           {'severity': 6, 'text': 'line one'},
           {'severity': 6, 'text': 'line two'},
       ],
       str(p5['statustext_new']))
+
+print("T3b — multi-consumer: every open page gets every line (a drain would split them)")
+_reset()
+# The real demo flow: pilot.html and dashboard.html both hold a :8765 socket.
+c_pilot = srv._statustext_head()
+c_dash  = srv._statustext_head()
+srv._handle_status_msg(FakeMsg('STATUSTEXT', severity=4, text='Failsafe: GCS lost'))
+pp = srv.build_telemetry_payload(c_pilot); c_pilot = pp['statustext_seq']
+pd = srv.build_telemetry_payload(c_dash);  c_dash  = pd['statustext_seq']
+check("T3b.1 consumer A receives the line",
+      pp['statustext_new'] == [{'severity': 4, 'text': 'Failsafe: GCS lost'}],
+      str(pp['statustext_new']))
+check("T3b.2 consumer B receives the SAME line (not stolen by A)",
+      pd['statustext_new'] == [{'severity': 4, 'text': 'Failsafe: GCS lost'}],
+      str(pd['statustext_new']))
+check("T3b.3 neither consumer sees it twice",
+      srv.build_telemetry_payload(c_pilot)['statustext_new'] == [] and
+      srv.build_telemetry_payload(c_dash)['statustext_new'] == [])
+# A page opened AFTER the line was emitted starts at head — no backlog dump.
+c_late = srv._statustext_head()
+check("T3b.4 a late-joining consumer gets no backlog replay",
+      srv.build_telemetry_payload(c_late)['statustext_new'] == [])
+check("T3b.5 ring is bounded (no unbounded growth with no consumer attached)",
+      srv._statustext_buf.maxlen == 200, str(srv._statustext_buf.maxlen))
 
 print("T4 param_set — Phase B, not asserted here")
 
