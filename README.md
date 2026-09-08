@@ -31,9 +31,13 @@ command/telemetry code. The sim wraps the maintained
 | `fanout.py` | Optional: rebroadcast the single-client SITL link to two consumers. |
 | `gcs/` | The **Airsent GCS console** (browser dashboard + `airsent_server.py`), the SITL-integration snapshot the demo serves. |
 
-> `gcs/` is a bundled snapshot of Airsent's `Airsent-FlightConsole` (the `sitl-integration`
-> branch) so this repo runs the dashboard demo standalone. `Airsent-FlightConsole` remains
-> the console's source of truth.
+> **`gcs/` is the console's source of truth.** It began as a snapshot of
+> `Airsent-FlightConsole` (`sitl-integration`), but the dashboard↔SITL work — Phase A's
+> `_LOCAL_DEV` endpoint seam, Phase A.5's sensor-health / system-status / STATUSTEXT
+> forwarding — all landed here, leaving that branch 112 lines behind and never pushed.
+> Rather than keep two copies drifting, this repo is now canonical for the console:
+> develop here, and treat `Airsent-FlightConsole`'s `sitl-integration` branch as retired
+> (2026-09-07).
 
 ---
 

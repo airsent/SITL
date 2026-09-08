@@ -207,9 +207,11 @@ cat <<EOF
    (Take off BEFORE switching to Manual — Manual streams velocity that would
     otherwise override the takeoff climb.)
 
-   Note: only the pilot console commands the sim. dashboard/health/
-   sensor-status point at the production VPS; mission/parameters/
-   actuators are UI mockups (no backend).
+   Note: only the pilot console commands the sim, but the DASHBOARD now shows
+   it live too (Phase A endpoint seam). health/sensor-status still point at
+   the production VPS, so they read OFFLINE here — that is the wrong vehicle,
+   not a dead sim. mission/parameters are UI mockups; actuators has no backend
+   and says so.
 
    Press Ctrl-C here to shut the demo down.
 
