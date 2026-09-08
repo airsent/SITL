@@ -710,27 +710,89 @@
       });
     });
 
-    drawChart("motorSpark1", [{ color: "#8df7a7", data: randomSeries(28, 0.62, 0.08), width: 2 }], 8, 4);
-    drawChart("motorSpark2", [{ color: "#8df7a7", data: randomSeries(28, 0.56, 0.08), width: 2 }], 8, 4);
-    drawChart("motorSpark3", [{ color: "#8df7a7", data: randomSeries(28, 0.68, 0.08), width: 2 }], 8, 4);
-    drawChart("motorSpark4", [{ color: "#8df7a7", data: randomSeries(28, 0.64, 0.08), width: 2 }], 8, 4);
+    // Charts are part of the simulation too — they plot randomSeries(), so they
+    // only get drawn in demo mode. Real mode leaves them flat rather than paint a
+    // convincing motor trace nothing measured.
+    function drawDemoCharts() {
+      drawChart("motorSpark1", [{ color: "#8df7a7", data: randomSeries(28, 0.62, 0.08), width: 2 }], 8, 4);
+      drawChart("motorSpark2", [{ color: "#8df7a7", data: randomSeries(28, 0.56, 0.08), width: 2 }], 8, 4);
+      drawChart("motorSpark3", [{ color: "#8df7a7", data: randomSeries(28, 0.68, 0.08), width: 2 }], 8, 4);
+      drawChart("motorSpark4", [{ color: "#8df7a7", data: randomSeries(28, 0.64, 0.08), width: 2 }], 8, 4);
 
-    drawChart("motorPwmChart", [
-      { color: "#7fdcff", data: randomSeries(50, 0.56, 0.08) },
-      { color: "#7fff98", data: randomSeries(50, 0.62, 0.08) },
-      { color: "#d8ff73", data: randomSeries(50, 0.68, 0.08) },
-      { color: "#8bc1ff", data: randomSeries(50, 0.60, 0.08) }
-    ], 14, 5);
+      drawChart("motorPwmChart", [
+        { color: "#7fdcff", data: randomSeries(50, 0.56, 0.08) },
+        { color: "#7fff98", data: randomSeries(50, 0.62, 0.08) },
+        { color: "#d8ff73", data: randomSeries(50, 0.68, 0.08) },
+        { color: "#8bc1ff", data: randomSeries(50, 0.60, 0.08) }
+      ], 14, 5);
 
-    drawChart("motorOutputChart", [
-      { color: "#7fdcff", data: randomSeries(50, 0.30, 0.05) },
-      { color: "#7fff98", data: randomSeries(50, 0.32, 0.05) },
-      { color: "#d8ff73", data: randomSeries(50, 0.34, 0.05) },
-      { color: "#8bc1ff", data: randomSeries(50, 0.33, 0.05) }
-    ], 14, 5);
+      drawChart("motorOutputChart", [
+        { color: "#7fdcff", data: randomSeries(50, 0.30, 0.05) },
+        { color: "#7fff98", data: randomSeries(50, 0.32, 0.05) },
+        { color: "#d8ff73", data: randomSeries(50, 0.34, 0.05) },
+        { color: "#8bc1ff", data: randomSeries(50, 0.33, 0.05) }
+      ], 14, 5);
+    }
 
-    setInterval(updateActuatorPage, 1000);
-    updateActuatorPage();
+    function drawFlatCharts() {
+      const flat = n => new Array(n).fill(0);
+      ["motorSpark1", "motorSpark2", "motorSpark3", "motorSpark4"].forEach(id =>
+        drawChart(id, [{ color: "#334155", data: flat(28), width: 2 }], 8, 4));
+      drawChart("motorPwmChart",    [{ color: "#334155", data: flat(50) }], 14, 5);
+      drawChart("motorOutputChart", [{ color: "#334155", data: flat(50) }], 14, 5);
+    }
+
+    /* ── DEMO GATE ───────────────────────────────────────────────────────────
+       This page has NO data source: no WebSocket, no fetch. Every number it
+       showed came from Math.random(), including a fabricated motor-divergence
+       fault injected on ~6% of ticks — and it ran in EVERY mode, unbadged, so
+       an operator on the real vehicle saw invented PWMs and invented faults.
+
+       Same no-lie rule as Phase A (a value we do not have reads `--`, never a
+       plausible number). Every other page gates its simulation behind isActual
+       and badges it; this one now does too:
+         demo mode  -> keep the simulation, stamp it DEMO
+         real mode  -> render `--` and say the backend is not wired
+       The server already streams real m1..m4 in the telemetry payload, so
+       wiring this page for real is a small follow-up, not a rebuild. */
+    const airsentMode = (localStorage.getItem("airsentMode") || "demo").toLowerCase();
+    const isActual = ["actual", "operator", "viewer", "real"].includes(airsentMode);
+
+    function markDemo() {
+      const b = document.createElement("div");
+      b.textContent = "DEMO — SIMULATED ACTUATOR DATA";
+      b.style.cssText = "position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:9999;" +
+        "font-family:var(--mono),monospace;font-size:10px;letter-spacing:2px;padding:3px 14px;" +
+        "background:#f59e0b;color:#111;font-weight:700;";
+      document.body.appendChild(b);
+    }
+
+    function renderNoBackend() {
+      const dash = el => { if (el) el.textContent = "--"; };
+      [topVoltage, topCurrent, topBattery, throttlePercent, avgMotorOutput, motorSpreadEl,
+       summaryMode, summaryThrottle, summaryAverage, summarySpread,
+       diagAverage, diagHighest, diagLowest, diagSpread].forEach(dash);
+      pwmEls.forEach(dash); quadPwmEls.forEach(dash);
+      outEls.forEach(dash); quadOutEls.forEach(dash);
+      barEls.forEach(b => { if (b) b.style.width = "0%"; });
+
+      const n = document.createElement("div");
+      n.textContent = "ACTUATOR TELEMETRY NOT WIRED — no backend for this page";
+      n.style.cssText = "position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:9999;" +
+        "font-family:var(--mono),monospace;font-size:10px;letter-spacing:2px;padding:3px 14px;" +
+        "background:#334155;color:#e2e8f0;";
+      document.body.appendChild(n);
+    }
+
+    if (isActual) {
+      drawFlatCharts();
+      renderNoBackend();
+    } else {
+      drawDemoCharts();
+      markDemo();
+      setInterval(updateActuatorPage, 1000);
+      updateActuatorPage();
+    }
   </script>
 <script src="nav-toggle.js"></script>
 </body>

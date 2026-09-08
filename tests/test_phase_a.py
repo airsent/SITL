@@ -72,6 +72,37 @@ check("S.1 mission timer starts at 0 in real mode",
 check("S.2 RSSI 255 sentinel renders '--' not a plausible number",
       "=== 255" in telem and '"--"' in telem)
 
+print("R1 — confirm-slider cannot latch (regression, 2026-09-07)")
+# A slide abandoned outside the window used to leave dragging=true, so the next
+# stray mousemove anywhere on the page completed it. Reproduced live against SITL:
+# a 40% drag on LAND + one unrelated mousemove sent MAV_CMD_DO_SET_MODE -> LAND.
+check("R1.1 mousemove aborts when no mouse button is held",
+      "e.buttons===0" in pilot.replace(" ", ""))
+check("R1.2 the abort path is a named handler, not inline duplication",
+      "function abortDrag()" in pilot)
+check("R1.3 closeSlide() cancels an in-progress drag",
+      re.search(r"function closeSlide\(\)\s*\{[^}]*slideAbortDrag", pilot, re.S) is not None)
+check("R1.4 window blur cancels an in-progress drag",
+      "addEventListener('blur'" in pilot and "slideAbortDrag" in pilot)
+check("R1.5 touchcancel resets the drag too",
+      "ontouchcancel" in pilot)
+
+print("R2 — actuators.html no longer fabricates in real mode (regression, 2026-09-07)")
+act = (GCS / "actuators.html").read_text()
+check("R2.1 the page reads airsentMode and derives isActual",
+      "airsentMode" in act and "isActual" in act)
+check("R2.2 the 1s simulation loop is inside the demo branch only",
+      re.search(r"if\s*\(isActual\)\s*\{.*?\}\s*else\s*\{[^}]*setInterval\(updateActuatorPage",
+                act, re.S) is not None)
+check("R2.3 real mode renders '--' instead of random numbers",
+      "renderNoBackend" in act and '"--"' in act)
+check("R2.4 real mode says the backend is not wired",
+      "NOT WIRED" in act)
+check("R2.5 demo mode is badged so it can't be read as vehicle data",
+      "DEMO — SIMULATED ACTUATOR DATA" in act)
+check("R2.6 the randomSeries charts are gated too",
+      "drawDemoCharts" in act and "drawFlatCharts" in act)
+
 print()
 if fails:
     print(f"FAILED ({len(fails)}): " + ", ".join(fails))

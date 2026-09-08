@@ -1223,6 +1223,11 @@ function syncModeFromTelem(){
 
 /* ── SLIDE TO CONFIRM ── */
 let slidePendingAction = null;
+// Set by initSlider() to that slider's own abort handler. Lets closeSlide() and a
+// window blur cancel a drag that is still in progress, so no confirm gesture can
+// survive the dialog it belongs to.
+let slideAbortDrag = null;
+window.addEventListener('blur', ()=>{ if(slideAbortDrag) slideAbortDrag(); });
 
 // Update the topbar to the non-manual (autopilot) state WITHOUT sending a mode
 // command. We used to call setMode('auto') here, but setMode('auto') ALSO sends
@@ -1264,6 +1269,7 @@ function showSlide(action, title, subtitle, color, anchorId){
 }
 
 function closeSlide(){
+  if(slideAbortDrag) slideAbortDrag();   // a drag must never outlive its dialog
   E('slideOverlay').style.display = 'none';
   slidePendingAction = null;
   E('slideKnob').style.left = '4px';
@@ -1297,8 +1303,27 @@ function initSlider(){
     document.body.style.userSelect='none';
     document.body.style.webkitUserSelect='none';
   };
+  // Abandon a part-finished slide and put the knob back at the start.
+  function abortDrag(){
+    dragging=false;
+    knob.style.cursor='grab';
+    endSelGuard();
+    knob.style.left=PAD+'px';
+    fill.style.width='0%';
+  }
+  slideAbortDrag = abortDrag;                 // so closeSlide()/blur can reach it
+
   document.onmousemove = document.ontouchmove = (e)=>{
     if(!dragging)return;
+    // LOST-RELEASE GUARD. A mousemove with no button held means the operator let
+    // go somewhere we never saw the mouseup — released outside the window, or the
+    // browser swallowed it. Without this the half-finished drag LATCHES: dragging
+    // stays true, and the next stray mouse move anywhere on the page slides the
+    // knob past the threshold and fires the command they declined to confirm.
+    // (Reproduced against SITL: a 40% drag on LAND + one unrelated mousemove sent
+    // MAV_CMD_DO_SET_MODE -> LAND to the vehicle.) Touch has no `buttons`, so this
+    // only guards mouse input; touchend/touchcancel cover the finger case.
+    if(e.type==='mousemove' && e.buttons===0){ abortDrag(); return; }
     e.preventDefault();                       // stop the selection extending across the page
     const mx=maxX();
     const newLeft=Math.max(PAD, Math.min(mx, startLeft + getX(e) - startX));
@@ -1311,14 +1336,8 @@ function initSlider(){
       executeSlideAction();
     }
   };
-  document.onmouseup = document.ontouchend = ()=>{
-    if(dragging){
-      dragging=false;
-      knob.style.cursor='grab';
-      endSelGuard();
-      knob.style.left=PAD+'px';
-      fill.style.width='0%';
-    }
+  document.onmouseup = document.ontouchend = document.ontouchcancel = ()=>{
+    if(dragging) abortDrag();
   };
 }
 
