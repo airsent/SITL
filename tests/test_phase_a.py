@@ -110,6 +110,16 @@ check("R2.6 the randomSeries charts are gated too",
       "drawDemoCharts" in act and "drawFlatCharts" in act)
 
 print()
+print("R3 — ASC v2 failsafe page works against local SITL (2026-10-20)")
+fsh = (GCS / "failsafe.html").read_text()
+bridge = (GCS / "failsafe-bridge.js").read_text()
+check("R3.1 failsafe.html loads the check catalog before failsafe-auto.js",
+      0 <= fsh.find("asc-check-catalog.js") < fsh.find("failsafe-auto.js"))
+check("R3.2 failsafe bridge reads the local sim server on localhost",
+      LOCAL_DEV in bridge and "8765" in bridge)
+check("R3.3 direct local frames are fresh, relayed frames still use telemetry_age",
+      "(_LOCAL_DEV?0:null)" in bridge.replace(" ", "") and "telemetry_age" in bridge)
+
 if fails:
     print(f"FAILED ({len(fails)}): " + ", ".join(fails))
     sys.exit(1)

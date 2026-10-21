@@ -1,3 +1,5 @@
+> **ASC v2 note:** Read `ASC_V2_START_HERE.md` first. The current package has 64 defined checks and a compact CHECKS dropdown on `failsafe.html`; v1 counts/screenshots in this document may be outdated.
+
 # Map fix and a new DigitalOcean Droplet
 
 The dashboard and mission planner now share the CARTO dark tile source. The mission planner previously used Stadia tiles without production authentication. Edit console-config.js to choose a tile provider and its required attribution; check your provider's terms for production use. Stadia can also be used after registering your domain: https://docs.stadiamaps.com/authentication/ . Tiles load directly from the provider, not from the Droplet. CARTO now requires a basemaps API key; configure it before using this tile source.

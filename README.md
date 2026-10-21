@@ -181,3 +181,22 @@ python teleop.py udpin:127.0.0.1:14551
 Clone, `pip install -r requirements.txt`, `./run.sh`, then `./demo.sh` (dashboard) or
 `python teleop.py` (standalone) — same on every machine. ArduCopter is the default because
 it's what actually flies; `px4/` stays as reference only.
+
+## Testing ASC failsafes in the sim (`asc-v2` branch)
+
+With `./demo.sh` running, open `http://localhost:8000/failsafe.html`. The **ASC strip** at the top
+turns ON by itself when the drone arms, **FAULTS** counts CRITICAL checks, and **CHECKS ▾**
+lists all 64 checks live (filter STATUS → CRITICAL to see only what fired).
+
+Inject real faults from a second terminal (`~/.venvs/airsent-gcs/bin/python asc_faults.py …`):
+
+| Fault | What ASC shows | What ArduPilot itself does |
+|---|---|---|
+| `link on` (freeze FC) | `fc_connection` CRITICAL + ~10 checks STALE | nothing (it's frozen) |
+| `fence on`, then take off above 5 m | FAULTS 2: `fence_breach`, `fence_status` CRITICAL | RTL |
+| `gps on` | `gps_fix` WARNING | EKF failsafe if flying |
+| `batt on` | only via `prearm_alert` (no voltage threshold yet) | low-battery failsafe |
+| `rc on` while flying | **nothing** — `rc_fresh` tracks message arrival, not signal | RTL |
+
+`asc_faults.py watch` gives the same view in the terminal; `asc_faults.py clear` undoes everything.
+ASC is observation-only: every response above comes from ArduPilot's own failsafes, not ASC.

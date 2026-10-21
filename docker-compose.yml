@@ -14,6 +14,7 @@ services:
     platform: linux/amd64
     ports:
       - "5760:5760"
+      - "127.0.0.1:5762:5762"   # spare MAVLink port for tools/asc_faults.py (fault injection)
     environment:
       VEHICLE: ArduCopter
       MODEL: "${MODEL:-+}"

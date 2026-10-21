@@ -541,3 +541,48 @@ body.failsafe-page{--text:#e2eaf0;--muted:#7a95a8;--line:rgba(255,255,255,.06);-
 .failsafe-page .fs-auto-bar.fs-asc-on{border-top-color:#72e99b}
 
 .fs-asc-lock{color:#e2eaf0;background:#0a131c;border:1px solid #34536b;border-top:2px solid #60a5fa;width:min(420px,90vw);padding:20px;font:13px 'Share Tech Mono',monospace}.fs-asc-lock::backdrop{background:#000b}.fs-asc-lock h2{font:700 23px 'Rajdhani',sans-serif;margin:0}.fs-asc-lock label{display:grid;gap:7px;margin:14px 0}.fs-asc-lock input{background:#060c12;color:#e2eaf0;border:1px solid #34536b;padding:10px;font:16px monospace}.fs-asc-lock button{background:#102231;border:1px solid #34536b;color:#e2eaf0;padding:8px 12px;cursor:pointer}.fs-asc-lock p{color:#8da8ba;font-size:11px;line-height:1.5}.fs-asc-lock label[hidden]{display:none}
+
+/* Inline ASC details overlay INSIDE the existing failsafe view; not a new page */
+.failsafe-page .fs-auto-bar{position:relative;z-index:5}
+.failsafe-page .fs-asc-open{margin-left:auto;background:#0a1923;border:1px solid #30475d;color:#a6daed;font:600 12px 'Rajdhani',sans-serif;padding:5px 12px}
+.failsafe-page .fs-asc-details{position:absolute;z-index:50;top:117px;left:8px;right:8px;max-height:70%;padding:0;border:1px solid #34536a;box-shadow:0 22px 65px rgba(0,0,0,.9);background:#061018;display:flex;flex-direction:column;overflow:hidden}
+.failsafe-page .fs-asc-details[hidden]{display:none}
+.failsafe-page .fs-asc-detail-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px;background:#0b1c2b;border-bottom:1px solid #34536a;color:#bfe9f5;font:12px 'Share Tech Mono',monospace}
+.failsafe-page .fs-asc-detail-head span{font-size:10px;color:#7896ab}
+.failsafe-page .fs-asc-detail-head label{margin-left:auto}
+.failsafe-page .fs-asc-detail-head select{background:#08121e;color:#d7e8f4;border:1px solid #3b5368;padding:4px}
+.failsafe-page #fsAscClose{color:#fff;background:#182b3c;border:1px solid #385870;padding:3px 9px}
+.failsafe-page .fs-asc-check-list{overflow-y:auto;padding:8px 14px}
+.failsafe-page .fs-asc-check-row{display:grid;grid-template-columns:105px minmax(150px,.65fr) minmax(300px,1.5fr);gap:14px;padding:9px;border-bottom:1px solid #203443;align-items:center;color:#d9e7f1;font:12px 'Share Tech Mono',monospace}
+.failsafe-page .fs-asc-check-row small{color:#8aa1b2;font-size:11px;line-height:1.35}
+.failsafe-page .fs-asc-state{font-size:10px;font-weight:600;color:#8698a5}
+.failsafe-page .fs-asc-state[data-status=OK]{color:#55da98}
+.failsafe-page .fs-asc-state[data-status=WARNING]{color:#f5c46b}
+.failsafe-page .fs-asc-state[data-status=CRITICAL]{color:#fb657a}
+.failsafe-page .fs-asc-state[data-status=STALE]{color:#f6ad59}
+.failsafe-page .fs-asc-state[data-status=UNKNOWN]{color:#a8b3bf}
+
+/* ASC v2: restore the original compact status strip. Details are a dropdown,
+   not extra explanatory text or a new page. */
+.failsafe-page .fs-auto-bar{position:relative;z-index:7;gap:14px}
+.failsafe-page #fsAutoSummary{font-family:'Share Tech Mono',monospace;font-size:12px;letter-spacing:2px;color:#a6bbca}
+.failsafe-page .fs-asc-open{margin-left:auto;min-width:106px;border:1px solid #344859;background:#081721;color:#acc9d9;font:600 12px 'Share Tech Mono',monospace;letter-spacing:1px;padding:7px 10px;cursor:pointer}
+.failsafe-page .fs-asc-open:hover,.failsafe-page .fs-asc-open-active{border-color:#62b8df;color:#def5ff}
+.failsafe-page .fs-asc-details{top:85px;left:auto;right:9px;width:min(950px,calc(100% - 18px));max-height:min(650px,calc(100% - 100px));z-index:60;border:1px solid #426077;box-shadow:0 18px 52px #000d;display:flex;background:#060f18}
+.failsafe-page .fs-asc-details[hidden]{display:none}
+.failsafe-page .fs-asc-detail-head{flex-wrap:nowrap;padding:11px 16px;font-size:13px;background:#0a1a27}
+.failsafe-page .fs-asc-detail-head strong{white-space:nowrap}
+.failsafe-page .fs-asc-detail-head strong span{color:#85d8fa}
+.failsafe-page .fs-asc-detail-head>span{margin-left:auto;text-align:right;font-size:10px}
+.failsafe-page #fsAscClose{font-size:20px;line-height:1;cursor:pointer}
+.failsafe-page .fs-asc-tools{display:flex;align-items:center;gap:16px;padding:12px 16px;border-bottom:1px solid #243848;background:#081522}
+.failsafe-page .fs-asc-tools label{display:flex;gap:8px;align-items:center;color:#91a8bd;white-space:nowrap;font:10px 'Share Tech Mono',monospace;letter-spacing:1px}
+.failsafe-page .fs-asc-tools select,.failsafe-page .fs-asc-tools input{min-width:130px;background:#061019;border:1px solid #33475b;color:#deedf5;font:12px 'Share Tech Mono',monospace;padding:8px;outline-offset:1px}
+.failsafe-page .fs-asc-tools label:first-child select{max-width:192px}
+.failsafe-page .fs-asc-search-wrap{margin-left:auto}
+.failsafe-page .fs-asc-search-wrap input{width:220px}
+.failsafe-page .fs-asc-check-list{padding:0 12px 10px;min-height:80px;overflow-y:auto;overscroll-behavior:contain}
+.failsafe-page .fs-asc-group-label{padding:13px 8px 8px;border-bottom:1px solid #355268;font:700 12px 'Share Tech Mono',monospace;letter-spacing:1.1px;color:#86c9e6;background:#081522}
+.failsafe-page .fs-asc-check-row{grid-template-columns:112px minmax(185px,.8fr) minmax(250px,1.15fr);padding:9px 8px;column-gap:14px}
+.failsafe-page .fs-asc-detail-foot{flex-shrink:0;border-top:1px solid #263d51;color:#68879a;background:#081522;padding:8px 16px;font:10px 'Share Tech Mono',monospace}
+.failsafe-page .fs-asc-empty{padding:20px;color:#9bb1c0}

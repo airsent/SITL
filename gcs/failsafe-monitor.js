@@ -1,46 +1,44 @@
-/* Display-only observations. Sensor readings never prove failsafe configuration.
-   Receipt age describes dashboard frames, not freshness of individual sensors. */
-(()=>{
-'use strict';
-let frame=null,selected=1;
-const $=id=>document.getElementById(id);
-const numeric=value=>typeof value==='number'&&Number.isFinite(value);
-function draw(){
- if(!$('fsSource'))return;
- const age=frame?Math.max(0,Date.now()-frame.receivedAt):Infinity;
- const fresh=age<=4000;
- document.querySelectorAll('.fs-square-tile').forEach(tile=>{
- const light=tile.querySelector('.fs-status-light');if(!light)return;
- const i=Number(tile.dataset.system),v=fresh?frame.values:null;
- let state='unknown',reason='No verified status data';
- if(frame&&!fresh&&i!==9){state='warning';reason='Dashboard data is stale'}
- if(v){
-  const checks={0:v.ekf_healthy,1:v.ekf_healthy,5:v.front_cam_active};
-  if(typeof checks[i]==='boolean'){state=checks[i]?'healthy':'fault';reason=i===0||i===1?'Reported EKF health':i===5?'Reported front-camera activity (frame age unverified)':'Reported status'}
-  if(i===4&&v.cam_hot===true){state='warning';reason='Reported camera thermal warning'}
+/* Map ASC backend evidence to the EXISTING twelve failsafe cards.
+ * Status is diagnostic evidence, not FC failsafe-parameter confirmation.
+ */
+(()=>{'use strict';
+ let frame=null,selected=1;const $=id=>document.getElementById(id);
+ const num=v=>typeof v==='number'&&Number.isFinite(v);
+ const fresh=()=>frame?.source==='telemetry'&&Number.isFinite(frame.receivedAt)&&
+   Date.now()-frame.receivedAt>=0&&Date.now()-frame.receivedAt<=3500&&
+   frame.asc?.mode==='MONITOR_ONLY';
+ function draw(){
+   if(!$('fsSource'))return;
+   const age=frame?.receivedAt?Math.max(0,Date.now()-frame.receivedAt):Infinity;
+   const ok=fresh(),asc=ok?frame.asc:null;
+   const states={OK:'healthy',WARNING:'warning',CRITICAL:'fault',UNKNOWN:'unknown',STALE:'warning',NOT_APPLICABLE:'unknown'};
+   for(const tile of document.querySelectorAll('.fs-square-tile')){
+     const indicator=tile.querySelector('.fs-status-light');if(!indicator)continue;
+     const group=asc?.groups?.find(x=>x.id===Number(tile.dataset.system));
+     const status=group?.status||'UNKNOWN';
+     indicator.dataset.state=states[status]||'unknown';
+     indicator.title=group?`${status} — ASC observation only; failsafe configuration not verified`:'Backend missing/stale — status unknown; not healthy';
+     indicator.setAttribute('aria-label',indicator.title);
+   }
+   $('fsClock').textContent=new Date().toLocaleTimeString('en-GB');
+   $('fsUpdated').textContent=frame?.receivedAt?new Date(frame.receivedAt).toLocaleTimeString('en-GB'):'--:--:--';
+   const v=ok?frame.values:null;
+   let observation='Backend data is missing, stale, or does not verify an onboard response.';
+   if(v){
+     const ids={12:['range_fresh','range_valid'],13:['jetson_temperature'],14:['flow_fresh','flow_quality'],15:['down_frame_fresh','apriltag_fresh']};
+     const cids=ids[selected];
+     if(cids)observation=cids.map(id=>asc.checks.find(c=>c.id===id)).filter(Boolean)
+        .map(c=>`${c.name}: ${c.status} — ${c.reason}`).join(' | ')||observation;
+   }
+   $('fsObservation').textContent=observation;
+   $('fsSource').textContent=ok?'ASC / LIVE':frame?.source==='demo'?'DEMO':'ASC / STALE';
+   $('fsVehicleState').textContent=!ok?'STALE':v.pixhawk_connected===false?'FC OFFLINE':'UNVERIFIED';
+   $('fsVehicleState').dataset.severity=!ok?'warning':v.pixhawk_connected===false?'fault':'unknown';
+   $('fsVoltage').textContent=v&&num(v.voltage)&&v.voltage>0?v.voltage.toFixed(1)+' V':'—';
+   $('fsGps').textContent=v&&typeof v.fix_type==='string'?v.fix_type:'—';
+   $('fsAge').textContent=Number.isFinite(age)?(age/1000).toFixed(1)+' s'+(!ok?' · STALE':''):'—';
  }
- const label=(frame?.source==='demo'&&fresh?'SIMULATED · ':'')+({unknown:'Unknown',healthy:'Healthy',warning:'Caution',fault:'Fault'}[state])+' — '+reason+'. Failsafe configuration remains unverified.';
- light.dataset.state=state;light.title=label;light.setAttribute('aria-label',label);
-});
- if($('fsClock'))$('fsClock').textContent=new Date().toLocaleTimeString('en-GB');
- if($('fsUpdated'))$('fsUpdated').textContent=frame?new Date(frame.receivedAt).toLocaleTimeString('en-GB'):'--:--:--';
- if($('fsObservation')){
- const v=fresh?frame.values:null;
- let text=!v?'Waiting for fresh dashboard data.':'No dedicated sensor evidence mapped for this rule.';
- if(v&&selected===12)text=numeric(v.rangefinder)?'Distance: '+v.rangefinder.toFixed(2)+' m · validity / sensor age not available.':'Rangefinder measurement not supplied.';
- if(v&&selected===14)text=numeric(v.of_quality)?'Flow quality: '+v.of_quality+' / 255 · active EKF source / sensor age unknown.':'Optical-flow quality not supplied.';
- if(v&&selected===15)text=typeof v.down_cam_active==='boolean'?'Camera flag: '+(v.down_cam_active?'active':'inactive')+' · frame freshness unverified.':'Down-camera flag not supplied.';
- if(v&&selected===13)text=numeric(v.jetson_temp)?'Jetson temperature: '+v.jetson_temp.toFixed(1)+' °C · thresholds unverified.':'Temperature not supplied.';
- $('fsObservation').textContent=(frame?.source==='demo'&&v?'SIMULATED · ':'')+text;
- }
- $('fsSource').textContent=frame?(frame.source==='demo'?'DEMO':'TELEMETRY'):'TRIAL';
- $('fsVehicleState').textContent=!frame?'WAITING':!fresh?'STALE':frame.source==='demo'?'SIMULATED':frame.values.pixhawk_connected===false?'FC OFFLINE':'UNVERIFIED';
- $('fsVehicleState').dataset.severity=!frame?'unknown':!fresh?'warning':frame.source==='demo'?'info':frame.values.pixhawk_connected===false?'fault':'unknown';
- $('fsVoltage').textContent=fresh&&numeric(frame.values.voltage)&&frame.values.voltage>=0?frame.values.voltage.toFixed(1)+' V':'—';
- $('fsGps').textContent=fresh&&typeof frame.values.fix_type==='string'?frame.values.fix_type:'—';
- $('fsAge').textContent=frame?(age/1000).toFixed(1)+' s'+(!fresh?' · STALE':''):'—';
-}
-addEventListener('airsent-review-selection',event=>{selected=event.detail.id;draw()});
-addEventListener('airsent-review-frame',event=>{frame=event.detail;draw()});
-addEventListener('DOMContentLoaded',()=>{window.AirsentReviewBridge?.request();draw();setInterval(draw,500)});
+ addEventListener('airsent-review-selection',e=>{selected=e.detail.id;draw()});
+ addEventListener('airsent-review-frame',e=>{frame=e.detail;draw()});
+ addEventListener('DOMContentLoaded',()=>{draw();setInterval(draw,500)});
 })();

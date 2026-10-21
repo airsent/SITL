@@ -13,6 +13,7 @@ from collections import deque
 import subprocess
 import socket
 import numpy as np
+from asc.engine import ASCEngine
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mavlink2
 
@@ -119,7 +120,7 @@ telem = {
     "voltage":0,"current":0,"battery":0,
     "rssi":0,"armed":False,
     "flight_mode":"UNKNOWN",
-    "ekf_healthy":True,
+    "ekf_healthy":None,
     "m1":0,"m2":0,"m3":0,"m4":0,
     "rangefinder":0,
     "of_quality":0,
@@ -196,8 +197,30 @@ _sensor_ts = {
     'rangefinder': 0.0,
     'of': 0.0,
     'vib': 0.0,
+    'heartbeat': 0.0, 'attitude': 0.0, 'position': 0.0,
+    'gps': 0.0, 'ekf': 0.0, 'rc': 0.0, 'power': 0.0,
+    'front_frame': 0.0, 'down_frame': 0.0,
+    'apriltag': 0.0, 'depth': 0.0, 'velocity_cmd': 0.0,
+    'system_stats': 0.0,
+    'mission_current': 0.0, 'mission_count': 0.0, 'mission_reached': 0.0,
+    'fence': 0.0, 'home_position': 0.0, 'esc': 0.0,
+    'battery_status': 0.0, 'prearm_alert': 0.0,
+    'landed_state': 0.0,
 }
 SENSOR_TIMEOUT = 3.0
+ASC_SENSOR_AGE_LIMIT = 360.0  # pre-arm alert observations expire after 120 s
+# Observe every second inside the EXISTING Jetson process; only the MAVLink
+# reader owns the Pixhawk connection. No second MAVLink serial consumer.
+asc_engine = ASCEngine(interval=1.0, event_path=os.environ.get('ASC_EVENT_JSONL'),
+    sqlite_path=os.environ.get('ASC_SQLITE_PATH'))
+_vps_telem_connected = False
+_vps_cmd_connected = False
+_worker_threads = {}  # observational liveness only; no thread-restart commands
+# Avoid endlessly retransmitting a saved GUIDED velocity request after its
+# origin has stopped. This transport guard does NOT replace an FC failsafe.
+# See ASC_INTEGRATION.md; validate on SITL/HIL before enabling flight operation.
+VELOCITY_CMD_TIMEOUT_S = float(os.environ.get('AIRSENT_VELOCITY_CMD_TIMEOUT_S', '1.0'))
+
 
 _last_imu_accel = None
 last_mav_report = 0.0
@@ -318,7 +341,7 @@ def read_jetson_temp():
                 temps.append(int(f.read().strip()) / 1000.0)
         except:
             pass
-    return max(temps) if temps else 0.0
+    return max(temps) if temps else None
 
 def check_oak_d_connected():
     try:
@@ -335,8 +358,8 @@ def thermal_monitor():
     while True:
         try:
             t = read_jetson_temp()
-            cam_temp['jetson_c'] = round(t, 1)
-            cam_temp['hot'] = t >= 75.0
+            cam_temp['jetson_c'] = round(t, 1) if t is not None else None
+            cam_temp['hot'] = t is not None and t >= 75.0
             if cam_temp['hot']:
                 print(f"[THERMAL] WARNING: {t}C")
             cam_device_available = check_oak_d_connected()
@@ -351,6 +374,7 @@ def thermal_monitor():
             last_cpu = cpu_now
             system_stats['gpu'] = read_gpu_percent()
             system_stats['ram'] = read_ram_percent()
+            _sensor_ts['system_stats'] = time.time()
         except Exception as e:
             print(f"[THERMAL] {e}")
         time.sleep(5)
@@ -438,10 +462,12 @@ def mavlink_reader():
                     last_mav_report = _now
                     print(f"[MAV] alive {t} mode={telem.get('flight_mode')} sats={telem.get('sats')} rssi={telem.get('rssi')}")
                 if t == 'ATTITUDE':
+                    _sensor_ts['attitude'] = _now
                     telem['roll']  = round(math.degrees(msg.roll), 1)
                     telem['pitch'] = round(math.degrees(msg.pitch), 1)
                     telem['yaw']   = round((math.degrees(msg.yaw)+360)%360, 1)
                 elif t == 'GLOBAL_POSITION_INT':
+                    _sensor_ts['position'] = _now
                     telem['lat']  = msg.lat/1e7
                     telem['lon']  = msg.lon/1e7
                     telem['alt']  = round(msg.relative_alt/1000, 2)
@@ -449,17 +475,21 @@ def mavlink_reader():
                 elif t == 'VFR_HUD':
                     telem['spd'] = round(msg.groundspeed, 1)
                 elif t == 'GPS_RAW_INT':
+                    _sensor_ts['gps'] = _now
                     fix_map={0:'NO FIX',1:'NO FIX',2:'2D FIX',3:'3D FIX',4:'DGPS',5:'RTK FLOAT',6:'RTK FIX'}
                     telem['fix_type'] = fix_map.get(msg.fix_type,'NO FIX')
-                    telem['sats']     = msg.satellites_visible
-                    telem['hdop']     = round(msg.eph/100, 2)
+                    telem['sats']     = msg.satellites_visible if msg.satellites_visible != 255 else None
+                    telem['hdop']     = round(msg.eph/100, 2) if msg.eph != 65535 else None
                 elif t == 'SYS_STATUS':
+                    _sensor_ts['power'] = _now
                     telem['voltage'] = round(msg.voltage_battery/1000, 1)
                     telem['current'] = round(msg.current_battery/100, 1)
                     telem['battery'] = msg.battery_remaining
                 elif t == 'RC_CHANNELS':
-                    telem['rssi'] = round(msg.rssi/2.54)
+                    _sensor_ts['rc'] = _now
+                    telem['rssi'] = round(msg.rssi/2.54) if msg.rssi != 255 else None
                 elif t == 'HEARTBEAT':
+                    _sensor_ts['heartbeat'] = _now
                     telem['armed'] = bool(msg.base_mode & 128)
                     mode_map={0:'STABILIZE',1:'ACRO',2:'ALT HOLD',3:'AUTO',
                               4:'GUIDED',5:'LOITER',6:'RTL',9:'LAND',16:'POSHOLD'}
@@ -506,24 +536,55 @@ def mavlink_reader():
                         _sensor_ts['vib'] = _now
                     _last_imu_accel = accel
                 elif t == 'EKF_STATUS_REPORT':
+                    _sensor_ts['ekf'] = _now
                     telem['ekf_healthy'] = bool(msg.flags & 0x1F == 0x1F)
+                    telem['ekf_velocity_variance'] = round(float(msg.velocity_variance),4)
+                elif t == 'MISSION_CURRENT':
+                    _sensor_ts['mission_current'] = _now
+                    telem['mission_seq'] = int(msg.seq)
+                elif t == 'MISSION_COUNT':
+                    _sensor_ts['mission_count'] = _now
+                    telem['mission_count'] = int(msg.count)
+                elif t == 'MISSION_ITEM_REACHED':
+                    _sensor_ts['mission_reached'] = _now
+                    telem['mission_reached'] = int(msg.seq)
+                elif t == 'FENCE_STATUS':
+                    _sensor_ts['fence'] = _now
+                    telem['fence_breached'] = bool(msg.breach_status)
+                elif t == 'HOME_POSITION':
+                    _sensor_ts['home_position'] = _now
+                    telem['home_lat'] = float(msg.latitude)/1e7
+                    telem['home_lon'] = float(msg.longitude)/1e7
+                elif t == 'ESC_TELEMETRY_1_TO_4':
+                    _sensor_ts['esc'] = _now
+                    telem['esc_rpm'] = [int(x) for x in msg.rpm]
+                elif t == 'BATTERY_STATUS':
+                    _sensor_ts['battery_status'] = _now
+                    telem['battery_cell_mv'] = [int(x) for x in msg.voltages
+                                                if int(x) not in (0,65535)]
+                elif t == 'EXTENDED_SYS_STATE':
+                    _sensor_ts['landed_state'] = _now
+                    telem['landed_state'] = int(msg.landed_state)
+                elif t == 'STATUSTEXT':
+                    message_text = str(msg.text).strip().rstrip('\x00')
+                    if message_text.lower().startswith('prearm:'):
+                        _sensor_ts['prearm_alert'] = _now
+                        telem['last_prearm_alert'] = message_text
 
                 if (_sensor_ts['rangefinder'] > 0 and
                         _now - _sensor_ts['rangefinder'] > SENSOR_TIMEOUT):
-                    telem['rangefinder'] = 0
-                    _sensor_ts['rangefinder'] = 0.0
+                    telem['rangefinder'] = None
                 if (_sensor_ts['of'] > 0 and
                         _now - _sensor_ts['of'] > SENSOR_TIMEOUT):
-                    telem['of_quality'] = 0
-                    telem['of_flow_x']  = 0.0
-                    telem['of_flow_y']  = 0.0
-                    _sensor_ts['of'] = 0.0
+                    telem['of_quality'] = None
+                    telem['of_flow_x'] = None
+                    telem['of_flow_y'] = None
                 if (_sensor_ts['vib'] > 0 and
                         _now - _sensor_ts['vib'] > SENSOR_TIMEOUT):
                     telem.pop('vib_x', None)
                     telem.pop('vib_y', None)
                     telem.pop('vib_z', None)
-                    _sensor_ts['vib'] = 0.0
+                    # Keep timestamp for reporting STALE.
         except Exception as e:
             print(f"[MAV] Error: {e}")
             with mav_lock:
@@ -539,11 +600,17 @@ def velocity_sender():
             if (mav and telem['flight_mode'] == 'GUIDED' and telem['armed']
                     and time.time() - vel_last_cmd_ts < VEL_STREAM_TIMEOUT):
                 with vel_lock:
+                    command_ts = _sensor_ts['velocity_cmd']
                     vx = vel_setpoint['vx']
                     vy = vel_setpoint['vy']
                     vz = vel_setpoint['vz']
                     yr = vel_setpoint['yaw_rate']
 
+                # Do not send a fresh MAVLink envelope for an old operator command.
+                # FC timeout must be independently validated on target firmware.
+                if not command_ts or time.time() - command_ts > VELOCITY_CMD_TIMEOUT_S:
+                    time.sleep(0.1)
+                    continue
                 if obstacle_blocked and vx > 0:
                     vx = 0.0
                     log_mavlink("OBSTACLE BLOCK — forward velocity zeroed")
@@ -696,6 +763,7 @@ def process_command(raw):
 
             with vel_lock:
                 vel_setpoint.update({'vx':vx,'vy':vy,'vz':vz,'yaw_rate':yr})
+                _sensor_ts['velocity_cmd'] = time.time()
             vel_last_cmd_ts = time.time()
 
             return {
@@ -829,6 +897,11 @@ def build_telemetry_payload(statustext_cursor=None):
             payload[f'jetson_{key}'] = val
     payload['front_cam_active'] = cam_device_available
     payload['down_cam_active']  = downcam_device_available
+    payload['apriltag_detector_available'] = _APRILTAG_AVAILABLE
+    payload['vps_telem_connected'] = _vps_telem_connected
+    payload['vps_cmd_connected'] = _vps_cmd_connected
+    payload['worker_threads'] = {name:thread.is_alive() for name,thread in _worker_threads.items()}
+    payload['in_air'] = None  # No validated in-air signal; do not infer from armed.
     with apriltag_lock:
         payload['apriltag'] = dict(apriltag_result)
     with det_lock:
@@ -837,18 +910,27 @@ def build_telemetry_payload(statustext_cursor=None):
         payload['proximity'] = dict(proximity)
     payload['detection_active'] = detection_active
     of_offline  = (_sensor_ts['of']          == 0 or (now - _sensor_ts['of'])          > SENSOR_TIMEOUT)
-    rng_offline = (_sensor_ts['rangefinder'] == 0 or (now - _sensor_ts['rangefinder']) > SENSOR_TIMEOUT
-                   or of_offline)
+    rng_offline = (_sensor_ts['rangefinder'] == 0 or (now - _sensor_ts['rangefinder']) > SENSOR_TIMEOUT)
     if rng_offline:
-        payload['rangefinder'] = 0
+        payload['rangefinder'] = None
     if of_offline:
-        payload['of_quality'] = 0
-        payload['of_flow_x']  = 0.0
-        payload['of_flow_y']  = 0.0
+        payload['of_quality'] = None
+        payload['of_flow_x'] = None
+        payload['of_flow_y'] = None
     if _sensor_ts['vib'] == 0 or (now - _sensor_ts['vib']) > SENSOR_TIMEOUT:
         payload.pop('vib_x', None)
         payload.pop('vib_y', None)
         payload.pop('vib_z', None)
+    payload['sensor_age_s'] = {key: round(min(ASC_SENSOR_AGE_LIMIT, max(0.0, now-ts)), 2)
+        for key,ts in _sensor_ts.items() if ts > 0}
+    # No hard motor/ESC, rear camera, parachute, operator lease, or FC config
+    # confirmation is manufactured by this bridge.
+    try:
+        payload['disk_used_percent'] = round(100.0 * (
+            1 - os.statvfs('/').f_bavail / max(1, os.statvfs('/').f_blocks)), 1)
+    except (OSError, ZeroDivisionError):
+        pass
+    payload['asc'] = asc_engine.tick(payload)
     return payload
 
 # ── Telemetry WebSocket ──────────────────────────
@@ -1020,11 +1102,13 @@ def cam_capture_thread():
                         continue
                     frame = frame_data.getCvFrame()
                     frame_counter += 1
+                    _sensor_ts['front_frame'] = time.time()
 
                     depth_frame = None
                     depth_data = depthQueue.get()
                     if depth_data is not None:
                         depth_frame = depth_data.getCvFrame()
+                        _sensor_ts['depth'] = time.time()
 
                     # ── Class-agnostic proximity check (every frame) ──
                     # Independent of YOLO: catches hands, walls, anything close.
@@ -1330,6 +1414,7 @@ def detect_apriltags(frame_bgr):
     with apriltag_lock:
         apriltag_result['detected'] = len(out) > 0
         apriltag_result['tags'] = out
+        _sensor_ts['apriltag'] = time.time()
 
 # ── Downward CSI Camera (IMX219 on CAM0) ─────────
 def downcam_capture_thread():
@@ -1413,6 +1498,7 @@ def downcam_capture_thread():
                     with downcam_lock:
                         downcam_raw['frame'] = frame   # full-res for RTMP + AprilTag
                         downcam_jpg['b64'] = b64        # downscaled JPEG for WebSocket
+                        _sensor_ts['down_frame'] = time.time()
         except Exception as e:
             print(f"[DOWNCAM] Capture error: {e}")
             traceback.print_exc()
@@ -1449,6 +1535,7 @@ async def downcam_handler(websocket):
 
 # ── VPS telemetry relay ──────────────────────────
 async def vps_telem_relay():
+    global _vps_telem_connected
     while True:
         try:
             print("[VPS] Connecting telemetry relay...")
@@ -1459,6 +1546,7 @@ async def vps_telem_relay():
             )
 
             print("[VPS] Telemetry relay connected")
+            _vps_telem_connected = True
 
             st_cursor = _statustext_head()   # the relay is its own consumer
             while True:
@@ -1469,6 +1557,8 @@ async def vps_telem_relay():
 
         except Exception as e:
             print(f"[VPS] Relay error: {e}")
+        finally:
+            _vps_telem_connected = False
 
         await asyncio.sleep(2)
 
@@ -1482,6 +1572,7 @@ async def vps_telem_relay():
 VPS_CMD_URL = os.environ.get("VPS_CMD_URL", "ws://127.0.0.1:9004")
 
 async def vps_cmd_relay():
+    global _vps_cmd_connected
     while True:
         try:
             print("[VPS] Connecting command relay...")
@@ -1490,6 +1581,7 @@ async def vps_cmd_relay():
                 ping_interval=None
             )
             print("[VPS] Command relay connected")
+            _vps_cmd_connected = True
 
             async for raw in remote:
                 reply = process_command(raw)
@@ -1500,6 +1592,8 @@ async def vps_cmd_relay():
 
         except Exception as e:
             print(f"[VPS] Command relay error: {e}")
+        finally:
+            _vps_cmd_connected = False
 
         # On any disconnect, zero velocity for safety (same as local handler).
         with vel_lock:
@@ -1541,13 +1635,18 @@ if __name__ == "__main__":
     if SIM_MODE:
         relay_note = "VPS relay ON" if RELAY_MODE else "VPS disabled"
         print(f"[SITL] SIM MODE — MAVLink={PIXHAWK_PORT} · vision/RTMP disabled · {relay_note}")
-    threading.Thread(target=mavlink_reader,  daemon=True).start()
-    threading.Thread(target=velocity_sender, daemon=True).start()
+    # Named threads allow ASC to report a crashed worker (not a hang or stall).
+    # Image/acquisition freshness checks independently detect frozen pipelines.
+    workers = [('mavlink',mavlink_reader), ('velocity',velocity_sender)]
     # Vision + RTMP threads are Jetson/OAK-D only — skipped on a dev laptop / SITL.
     if _DEPTHAI_AVAILABLE and _CV2_AVAILABLE and not SIM_MODE:
-        threading.Thread(target=thermal_monitor,        daemon=True).start()
-        threading.Thread(target=downcam_capture_thread, daemon=True).start()
-        threading.Thread(target=cam_capture_thread,     daemon=True).start()
-        threading.Thread(target=cam_rtmp_thread,        daemon=True).start()
-        threading.Thread(target=downcam_rtmp_thread,    daemon=True).start()
+        workers += [
+            ('thermal',thermal_monitor), ('down_capture',downcam_capture_thread),
+            ('front_capture',cam_capture_thread), ('front_rtmp',cam_rtmp_thread),
+            ('down_rtmp',downcam_rtmp_thread),
+        ]
+    for name,target in workers:
+        worker=threading.Thread(target=target,name='airsent-'+name,daemon=True)
+        _worker_threads[name]=worker
+        worker.start()
     asyncio.run(main())

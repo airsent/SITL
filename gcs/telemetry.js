@@ -649,7 +649,7 @@ function applyTelemetry(data) {
   }
   if (data.hdop != null) pushBuffer("hdop", data.hdop);
 
-  if (data.ekf_healthy !== undefined) {
+  if (typeof data.ekf_healthy === 'boolean') {
     const ekfOk = data.ekf_healthy === true;
     setOnlineStatus(getEl("ekfTop"), ekfOk ? "HEALTHY" : "DEGRADED", ekfOk);
     if (!ekfOk) triggerFaultAlert('warn', 'ekf', 'EKF DEGRADED');
@@ -660,17 +660,18 @@ function applyTelemetry(data) {
     setText("altVal", data.alt.toFixed(1) + " m");
     pushBuffer("alt", data.alt);
   }
-  if (data.rangefinder !== undefined) {
+  if (typeof data.rangefinder === "number" && Number.isFinite(data.rangefinder) && data.rangefinder > 0) {
     setText("lidarAltVal", data.rangefinder.toFixed(2) + " m");
+  } else {
+    setText("lidarAltVal", "—"); // unavailable sensor is not ground contact
   }
 
   if (data.spd !== undefined) setText("spdVal", data.spd.toFixed(1) + " m/s");
   if (data.vspd !== undefined) pushBuffer("climb", data.vspd);
 
-  if (data.rssi !== undefined) {
-    const _r = data.rssi;
-    setText("rssiVal", (_r === 255 || _r === null) ? "--" : (_r.toFixed ? _r.toFixed(1) : _r));
-  }
+  const _r = data.rssi;
+  if (_r === 255 || typeof _r !== "number" || !Number.isFinite(_r)) setText("rssiVal", "--");
+  else setText("rssiVal", _r.toFixed(1));
 
   if (data.flight_mode !== undefined) {
     setText("mapModeVal", data.flight_mode);

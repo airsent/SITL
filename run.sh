@@ -46,6 +46,7 @@ echo ">> connect a GCS / pymavlink to  tcp:127.0.0.1:5760  (allow ~30s before AR
 exec docker run --rm -it \
   --platform linux/amd64 \
   -p 5760:5760 \
+  -p 127.0.0.1:5762:5762 \
   -e VEHICLE="${VEHICLE}" -e MODEL="${MODEL}" \
   -e LAT="${LAT}" -e LON="${LON}" -e ALT="${ALT}" -e DIR="${DIR}" \
   --log-opt max-size=20m --log-opt max-file=3 \

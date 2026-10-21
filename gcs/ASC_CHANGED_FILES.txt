@@ -1,0 +1,17 @@
+ASC v2 changed/new files relative to ASC v1:
+asc/engine.py
+asc/store.py
+airsent_server.py
+asc-check-catalog.js
+failsafe.html
+failsafe.css
+failsafe-auto.js
+tests/test_asc_v2.py
+tests/browser_smoke.py
+ASC_V2_START_HERE.md
+README_ASC_START_HERE.md
+ASC_INTEGRATION.md
+DROPLET_SETUP.md
+ASC_CHANGED_FILES.txt
+
+This is an additive prototype update, NOT completion of all 40 backlog tasks.
