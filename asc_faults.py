@@ -14,6 +14,9 @@ Usage (with ./demo.sh running):
   python asc_faults.py batt  [on|off]   # pack sags to 10.2V -> battery_voltage
   python asc_faults.py fence [on|off]   # 5 m altitude fence; fly above it -> fence_breach
   python asc_faults.py link  [on|off]   # freeze the flight controller -> fc_heartbeat STALE
+  python asc_faults.py motor N [thrust] # motor N (1-4) keeps `thrust` of its power: 0 = dead (default),
+                                        # 0.5 = half. `motor off` restores it. A '+' quad can't
+                                        # survive a dead motor — expect a crash; try 0.5–0.7 first.
   python asc_faults.py clear            # undo every fault
 
 `on` is the default. Restarting via ./demo.sh also resets the sim (params are wiped).
@@ -71,6 +74,20 @@ def param_fault(kind, on, m=None):
     print(f"{kind} fault {'ON' if on else 'OFF'}  ({', '.join(applied)})")
 
 
+def motor_fault(args, m=None):
+    """SIM_ENGINE_FAIL picks the servo output (0-based); SIM_ENGINE_MUL scales its thrust."""
+    m = m or connect()
+    if not args or args[0] == "off":
+        set_param(m, "SIM_ENGINE_MUL", 1.0)
+        print("motor fault OFF — all motors at full thrust"); return
+    n, thrust = int(args[0]), float(args[1]) if len(args) > 1 else 0.0
+    if not 1 <= n <= 4 or not 0.0 <= thrust <= 1.0:
+        sys.exit("usage: motor N [thrust]   (N = 1-4, thrust 0.0-1.0)")
+    if not (set_param(m, "SIM_ENGINE_FAIL", n - 1) and set_param(m, "SIM_ENGINE_MUL", thrust)):
+        sys.exit("sim rejected SIM_ENGINE_FAIL / SIM_ENGINE_MUL")
+    print(f"motor fault ON — motor {n} at {thrust:.0%} thrust")
+
+
 def link_fault(on):
     verb = "pause" if on else "unpause"
     r = subprocess.run(["docker", verb, CONTAINER], capture_output=True, text=True)
@@ -110,6 +127,8 @@ def main():
         except KeyboardInterrupt: pass
     elif kind == "link":
         link_fault(on)
+    elif kind == "motor":
+        motor_fault(args[1:])
     elif kind in PARAM_FAULTS:
         param_fault(kind, on)
     elif kind == "clear":
@@ -117,6 +136,7 @@ def main():
         m = connect()
         for k in PARAM_FAULTS:
             param_fault(k, False, m)
+        motor_fault(["off"], m)
     else:
         sys.exit(f"unknown fault '{kind}' — see --help")
 

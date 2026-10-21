@@ -197,6 +197,9 @@ Inject real faults from a second terminal (`~/.venvs/airsent-gcs/bin/python asc_
 | `gps on` | `gps_fix` WARNING | EKF failsafe if flying |
 | `batt on` | only via `prearm_alert` (no voltage threshold yet) | low-battery failsafe |
 | `rc on` while flying | **nothing** — `rc_fresh` tracks message arrival, not signal | RTL |
+| `motor 1 0.6` while flying | **nothing** (no ESC telemetry in sim) — watch motor 1's PWM pin at 1950 | holds altitude on 3 strong motors |
+| `motor 1` (dead) while flying | **nothing** | can't — a '+' quad flips and falls (~10 m in 4 s) |
 
+`motor off` restores the motor. After a crash, restart with `./demo.sh` (it resets the sim).
 `asc_faults.py watch` gives the same view in the terminal; `asc_faults.py clear` undoes everything.
 ASC is observation-only: every response above comes from ArduPilot's own failsafes, not ASC.
