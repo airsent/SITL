@@ -52,17 +52,23 @@ for cam in ("frontcam", "downcam"):
     check(f"T6.3 {cam} whep fetch guarded by `if(_LOCAL_DEV) return null`",
           "if(_LOCAL_DEV) return null" in window)
 
-print("T7 — no-lie: disabled selects + bindFailsafeControls writes nothing to the event log")
-check("T7.1 exactly 4 failsafe selects, all disabled",
-      dash.count('class="failsafe-select" disabled') == 4 and
-      dash.count('class="failsafe-select"') == 4,
-      f'disabled={dash.count(chr(34)+"failsafe-select"+chr(34)+" disabled")} total={dash.count(chr(34)+"failsafe-select"+chr(34))}')
-# extract bindFailsafeControls body and assert no event-log write
+print("T7 — no-lie: failsafe controls are labelled local policy, never aircraft config")
+# 2026-10-20: upstream (FlightConsole 3ea0fb6) replaced the four disabled flight-mode
+# selects with Activate/Deactivate toggles for a browser-local failsafe policy
+# (FAILSAFE.md). The Phase A rule still holds: nothing may read as a vehicle change.
+check("T7.1 exactly 4 failsafe selects, offering only Activate/Deactivate",
+      dash.count('class="failsafe-select"') == 4 and
+      dash.count('<option value="true">Activate</option>') == 4 and
+      not re.search(r'class="failsafe-select"[^>]*>\s*<option>(RTL|LAND|HOLD)', dash),
+      f'total={dash.count(chr(34)+"failsafe-select"+chr(34))}')
+# extract bindFailsafeControls body and assert any event-log write says LOCAL POLICY
 m = re.search(r"function bindFailsafeControls\s*\([^)]*\)\s*\{(.*?)\n\}", script, re.S)
 body = m.group(1) if m else None
 check("T7.2 bindFailsafeControls found", body is not None)
-check("T7.3 bindFailsafeControls writes no event-log line",
-      body is not None and "prependEvent" not in body)
+check("T7.3 any event-log line it writes is labelled LOCAL POLICY and sends no command",
+      body is not None and
+      ("prependEvent" not in body or "LOCAL POLICY" in body) and
+      "cmdSocket" not in body and "sendCommand" not in body)
 check("T7.4 the old 'SET TO' lie string is gone from that function",
       body is not None and "SET TO" not in body)
 

@@ -497,13 +497,13 @@ function setConnectedState(data) {
 }
 
 function updateMapFromTelemetry(lat, lon) {
-  if (typeof lat !== "number" || typeof lon !== "number") return;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return;
   setText("latVal", lat.toFixed(4) + "°");
   setText("lonVal", lon.toFixed(4) + "°");
 
   if (window.droneMarker) window.droneMarker.setLatLng([lat, lon]);
 
-  if (window.map && !mapHasZoomed && lat !== 0 && lon !== 0) {
+  if (window.map && !mapHasZoomed) {
     window.map.setView([lat, lon], 17);
     mapHasZoomed = true;
     if (window.trailLine) window.trailLine.setLatLngs([[lat, lon]]);
@@ -582,6 +582,7 @@ const MAV_STATE_TEXT = {
 
 // ─── MAIN APPLY ───────────────────────────────────────────────────────────────
 function applyTelemetry(data) {
+  window.AirsentReviewBridge?.publish(data, "telemetry");
   const pxOk = data.pixhawk_connected !== false;
   setConnectedState(data);
   if (losActive) return;
@@ -766,7 +767,7 @@ function applyTelemetry(data) {
   if (data.vib_y !== undefined) pushSmoothedVibration("vib_y", data.vib_y);
   if (data.vib_z !== undefined) pushSmoothedVibration("vib_z", data.vib_z);
 
-  if (data.lat !== undefined && data.lon !== undefined && data.lat !== 0 && data.lon !== 0) {
+  if (data.lat !== undefined && data.lon !== undefined && !(data.lat === 0 && data.lon === 0)) {
     updateMapFromTelemetry(data.lat, data.lon);
   }
 
@@ -785,7 +786,7 @@ function connectTelemetry() {
 
   const TELEM_PORT = 8765;
   const _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
-  const TELEM_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${TELEM_PORT}` : `wss://console.airsent.tech/telem`;
+  const TELEM_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${TELEM_PORT}` : window.airsentApiUrl("/telem", true);
 
   // Connects to the VPS relay over the secure nginx reverse proxy. Browsers
   // never connect directly to the Jetson for telemetry (the Jetson is behind
@@ -901,6 +902,8 @@ function updateDemoTelemetry() {
   pushBuffer("motor_avg", pwmVals.reduce((a,p) => a + pwmPct(p), 0) / 4);
   pushBuffer("throttle", rnd(30, 45));
 
+  // Mirror the existing demo frame; no second simulator or flight commands.
+  window.AirsentReviewBridge?.publish({voltage,current,sats,hdop,vib_x,vib_y,vib_z,alt,spd,fix_type:"RTK FIX",ekf_healthy:true,pixhawk_connected:true,battery:Number(getEl("topBattery")?.textContent.replace("%", ""))}, "demo");
   redrawAllCharts();
 }
 

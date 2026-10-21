@@ -86,9 +86,14 @@ In the pilot console that opens:
 > otherwise override the takeoff climb. (This was a real bug SITL caught before flight.)
 
 **What actually reflects the sim:** only the **pilot** console commands and reads the local
-SITL. `preflight`/`logs` read local sim telemetry (read-only). `dashboard`/`health`/
-`sensor-status` point at the production VPS (blind to your local sim); `mission`/
-`parameters`/`actuators` are UI mockups with no backend. Keep the flying demo on the pilot
+SITL; `dashboard` shows it live too. `preflight`/`logs` read local sim telemetry (read-only).
+`health`/`sensor-status` use the page origin's `/telem`, which the local demo server doesn't
+serve, so they read OFFLINE here. `failsafe` (from upstream FlightConsole) is a browser-local
+policy page and never writes to the aircraft. `mission`/`parameters`/`actuators` have no backend.
+
+**`--relay` note:** upstream moved the VPS relays behind an SSH tunnel (see `gcs/DROPLET_SETUP.md`);
+the old public relay ports are closed. To relay the sim, open the tunnel and set
+`VPS_TELEM_URL` / `VPS_CMD_URL` before `--sim --relay`. Keep the flying demo on the pilot
 page.
 
 Options: `NO_RESTART=1 ./demo.sh` (reuse a clean running SITL, faster) · `DEMO_OPEN=0 ./demo.sh`

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="console-config.js?v=4"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Airsent — Mission Planner</title>
@@ -476,6 +477,8 @@ body {
   box-shadow: 0 0 12px rgba(127,220,255,.6);
 }
 </style>
+<link rel="stylesheet" href="console-navigation.css?v=uniform-2">
+<script src="console-navigation.js" defer></script>
 </head>
 <body class="console-fit">
 
@@ -494,6 +497,7 @@ body {
       <a href="launch.html">Launch Sequencer</a>
       <a href="pilot.html">Pilot</a>
       <a href="health.html">System Health</a>
+      <a href="failsafe.html">Failsafe Systems</a>
       <a href="sensor-status.html">Sensor Status</a>
       <a href="actuators.html">Actuators</a>
     </div>
@@ -667,10 +671,7 @@ const map = L.map('missionMap', {
   zoomControl: false,
 });
 
-L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', {
-  maxZoom: 20,
-  attribution: '&copy; Stadia Maps &copy; OpenMapTiles &copy; OpenStreetMap'
-}).addTo(map);
+window.airsentMapLayer(map);
 
 // Home marker
 function makeHomeMarker() {

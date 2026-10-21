@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="console-config.js?v=4"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Airsent — Pilot</title>
@@ -256,6 +257,8 @@ body.pilot-fixed{
   display:none;white-space:nowrap;}
 .det-badge.on{display:block;}
 </style>
+<link rel="stylesheet" href="console-navigation.css?v=uniform-2">
+<script src="console-navigation.js" defer></script>
 </head>
 <body class="pilot-fixed">
 
@@ -385,6 +388,7 @@ body.pilot-fixed{
       <a href="launch.html">Launch Sequencer</a>
       <a href="pilot.html">Pilot</a>
       <a href="health.html">System Health</a>
+      <a href="failsafe.html">Failsafe Systems</a>
       <a href="sensor-status.html">Sensor Status</a>
       <a href="actuators.html">Actuators</a>
     </div>
@@ -585,8 +589,8 @@ const canSendCommands=appMode==='operator'||appMode==='actual'||appMode==='real'
 // local airsent_server.py (running against SITL) instead of the VPS relay.
 // Production (served from console.airsent.tech) is unchanged.
 const _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
-const TELEM_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${TELEM_PORT}` : `wss://console.airsent.tech/telem`;
-const CMD_WS_URL   = _LOCAL_DEV ? `ws://${location.hostname}:${CMD_PORT}`   : `wss://console.airsent.tech/cmd`;
+const TELEM_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${TELEM_PORT}` : window.airsentApiUrl("/telem", true);
+const CMD_WS_URL   = _LOCAL_DEV ? `ws://${location.hostname}:${CMD_PORT}`   : window.airsentApiUrl("/cmd", true);
 
 let mode='auto', flightTicks=0, tick=0, keys={};
 let iAmManualPilot=false;
@@ -855,7 +859,7 @@ function connectCam() {
   pc.createOffer()
     .then(offer => {
       pc.setLocalDescription(offer);
-      return fetch(`https://console.airsent.tech/video/frontcam/whep`, {
+      return fetch(window.airsentApiUrl("/video/frontcam/whep"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
         body: offer.sdp
@@ -942,7 +946,7 @@ function connectDowncam(){
     })
     .then(()=>waitForIceGathering())
     .then(()=>{
-      return fetch(`https://console.airsent.tech/video/downcam/whep`,{
+      return fetch(window.airsentApiUrl("/video/downcam/whep"),{
         method:'POST',
         headers:{'Content-Type':'application/sdp'},
         body:pc.localDescription.sdp

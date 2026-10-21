@@ -90,7 +90,8 @@ const telemetryEls = {
   sensorBarometer: document.getElementById("sensorBarometer"),
 };
  
-const appMode = (localStorage.getItem("airsentMode") || "demo").toLowerCase();
+// Explicit local trial URL uses demo data without changing the saved login mode.
+const appMode = (new URLSearchParams(location.search).get("trial") === "demo" ? "demo" : (localStorage.getItem("airsentMode") || "demo")).toLowerCase();
 const isDemoMode = appMode === "demo";
 const isViewerMode = appMode === "viewer";
 const canSendCommands = appMode === "operator" || appMode === "actual" || appMode === "real";
@@ -110,7 +111,7 @@ function connectCmd() {
                     cmdSocket.readyState === WebSocket.CONNECTING)) return;
   const CMD_PORT = 8767;
   const _LOCAL_DEV = location.hostname==='localhost' || location.hostname==='127.0.0.1';
-  const CMD_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${CMD_PORT}` : `wss://console.airsent.tech/cmd`;
+  const CMD_WS_URL = _LOCAL_DEV ? `ws://${location.hostname}:${CMD_PORT}` : window.airsentApiUrl("/cmd", true);
   cmdSocket = new WebSocket(CMD_WS_URL);
   cmdSocket.onopen  = () => { console.log("\u2705 Command channel connected"); };
   cmdSocket.onclose = () => {
@@ -187,6 +188,15 @@ const realModeEventLog = [
 ];
  
 let eventLogData = isRealMode ? [...realModeEventLog] : [...initialEventLog];
+const sessionEventArchive=eventLogData.map(entry=>({...entry,timestamp:'',source:'initial display'}));
+function updateDashboardUtcClock(){const el=document.getElementById('dashboardUtcClock');if(el){const now=new Date();el.textContent=now.toISOString().slice(11,19)+' UTC';el.dateTime=now.toISOString()}}
+updateDashboardUtcClock();setInterval(updateDashboardUtcClock,1000);
+document.getElementById('eventsDownloadBtn')?.addEventListener('click',()=>{
+ const quote=value=>'"'+String(value??'').replace(/"/g,'""')+'"';
+ const rows=[['UTC timestamp','Display time','Event','Source'],...sessionEventArchive.map(e=>[e.timestamp,e.time,e.text,e.source])];
+ const blob=new Blob(['\uFEFF'+rows.map(row=>row.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});
+ const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='airsent-events-'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
  
 /* ---------------------------
    HELPERS
@@ -257,10 +267,11 @@ function closeConfirm() {
  
 function getCurrentClockTime() {
   const now = new Date();
-  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  return now.toISOString().slice(11,19);
 }
  
 function prependEvent(text) {
+  sessionEventArchive.push({timestamp:new Date().toISOString(),time:getCurrentClockTime(),text:String(text).toUpperCase(),source:isRealMode?'telemetry / console':'demo / console'});
   if (eventLogPaused) return;
   eventLogData.unshift({
     time: getCurrentClockTime(),
@@ -466,7 +477,12 @@ function bindTopbarControls() {
 }
  
 function bindFailsafeControls() {
-  // No-op stub in Phase A: selects are disabled; Phase B wires real PARAM_SET + PARAM_VALUE read-back.
+	  failsafeSelects.forEach((select) => {
+	    select.addEventListener("change", () => {
+	      const label = select.closest(".failsafe-row")?.querySelector("span")?.textContent || "FAILSAFE";
+	      prependEvent(`${label} LOCAL POLICY ${select.value === 'true' ? 'ACTIVATED' : 'DEACTIVATED'}`);
+	    });
+	  });
 }
 
 function isViewerReadOnly() {
@@ -885,12 +901,7 @@ if (leafletMapEl && typeof L !== "undefined") {
     zoomControl: true,
   }).setView(isRealMode ? [usaLat, usaLon] : [initialLat, initialLon], isRealMode ? 4 : 16);
  
-  // Dark map with full road/terrain detail — Stadia Alidade Smooth Dark
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20,
-    subdomains: "abcd",
-    attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>"
-  }).addTo(map);
+  window.airsentMapLayer(map);
  
   droneMarker = L.circleMarker(isRealMode ? [usaLat, usaLon] : [initialLat, initialLon], {
     radius: 7,

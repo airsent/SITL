@@ -208,10 +208,10 @@ cat <<EOF
     otherwise override the takeoff climb.)
 
    Note: only the pilot console commands the sim, but the DASHBOARD now shows
-   it live too (Phase A endpoint seam). health/sensor-status still point at
-   the production VPS, so they read OFFLINE here — that is the wrong vehicle,
-   not a dead sim. mission/parameters are UI mockups; actuators has no backend
-   and says so.
+   it live too (Phase A endpoint seam). health/sensor-status use the page's own
+   origin (/telem), which this local server doesn't provide, so they read
+   OFFLINE here — not a dead sim. failsafe toggles are browser-local policy
+   only. mission/parameters are UI mockups; actuators has no backend.
 
    Press Ctrl-C here to shut the demo down.
 
